@@ -1,0 +1,388 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}
+
+enum ProjectUserRole {
+  MANAGER
+  MEMBER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+  FEATURE_REQUEST
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketType {
+  STANDARD
+  SERVICE
+}
+
+enum TimelineStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      UserRole @default(CLIENT)
+  active    Boolean  @default(true)
+  phone     String?
+  company   String?
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projectMemberships ProjectUser[]
+  createdTickets     Ticket[]        @relation("TicketCreator")
+  assignedTickets    Ticket[]        @relation("TicketAssignee")
+  ticketComments     TicketComment[]
+  ticketHistory      TicketHistory[]
+  todos              Todo[]
+  uploadedAttachments        TicketAttachment[]   @relation("UploadedAttachments")
+  uploadedProjectAttachments ProjectAttachment[]  @relation("UploadedProjectAttachments")
+  timeEntries        TimeEntry[]
+  notifications      Notification[]
+  auditLogs     AuditLog[]
+  savedFilters  SavedFilter[]
+  twoFactor     TwoFactorAuth?
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  startDate   DateTime?
+  endDate     DateTime?
+  slaHours    Int           @default(24)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  members            ProjectUser[]
+  tickets            Ticket[]
+  timelineItems      TimelineItem[]
+  todos              Todo[]
+  faqs               ProjectFaq[]
+  documents          ProjectDocument[]
+  attachments        ProjectAttachment[]
+  templates          TicketTemplate[]
+  customFields  CustomField[]
+  webhooks      Webhook[]
+}
+
+model ProjectUser {
+  id        String          @id @default(uuid())
+  userId    String
+  projectId String
+  role      ProjectUserRole @default(MEMBER)
+  createdAt DateTime        @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+}
+
+model Ticket {
+  id          String         @id @default(uuid())
+  projectId   String
+  creatorId   String
+  assigneeId  String?
+  title       String
+  description String
+  priority    TicketPriority @default(MEDIUM)
+  status      TicketStatus   @default(OPEN)
+  type        TicketType     @default(STANDARD)
+  slaDeadline DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator  User            @relation("TicketCreator", fields: [creatorId], references: [id])
+  assignee User?           @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  comments    TicketComment[]
+  history     TicketHistory[]
+  attachments TicketAttachment[]
+  timeEntries TimeEntry[]
+  blockedBy   TicketDependency[] @relation("BlockedTickets")
+  blocks      TicketDependency[] @relation("BlockerTickets")
+  customFieldValues CustomFieldValue[]
+}
+
+model TicketComment {
+  id        String   @id @default(uuid())
+  ticketId  String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model TicketHistory {
+  id        String   @id @default(uuid())
+  ticketId  String
+  userId    String
+  field     String
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model TimelineItem {
+  id          String         @id @default(uuid())
+  projectId   String
+  parentId    String?
+  todoId      String?
+  title       String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  status      TimelineStatus @default(TODO)
+  progress    Int            @default(0)
+  color       String?
+  sortOrder   Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  todo     Todo?          @relation(fields: [todoId], references: [id], onDelete: SetNull)
+  parent   TimelineItem?  @relation("SubTasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subTasks TimelineItem[] @relation("SubTasks")
+}
+
+model Todo {
+  id            String         @id @default(uuid())
+  projectId     String
+  userId        String?
+  title         String
+  completed     Boolean        @default(false)
+  dueDate       DateTime?
+  recurrence    String         @default("NONE")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User?          @relation(fields: [userId], references: [id])
+  timelineItems TimelineItem[]
+}
+
+model ProjectFaq {
+  id        String   @id @default(uuid())
+  projectId String
+  question  String
+  answer    String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectDocument {
+  id        String   @id @default(uuid())
+  projectId String
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model TicketAttachment {
+  id           String   @id @default(uuid())
+  ticketId     String
+  uploadedById String
+  filename     String
+  originalName String
+  mimetype     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  ticket     Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploadedBy User   @relation("UploadedAttachments", fields: [uploadedById], references: [id])
+}
+
+model ProjectAttachment {
+  id           String   @id @default(uuid())
+  projectId    String
+  uploadedById String
+  filename     String
+  originalName String
+  mimetype     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation("UploadedProjectAttachments", fields: [uploadedById], references: [id])
+}
+
+model TimeEntry {
+  id        String   @id @default(uuid())
+  ticketId  String
+  userId    String
+  minutes   Int
+  note      String?
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  linkUrl   String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TicketDependency {
+  id          String   @id @default(uuid())
+  ticketId    String
+  dependsOnId String
+  createdAt   DateTime @default(now())
+
+  ticket    Ticket @relation("BlockedTickets", fields: [ticketId], references: [id], onDelete: Cascade)
+  dependsOn Ticket @relation("BlockerTickets", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, dependsOnId])
+}
+
+model TicketTemplate {
+  id                  String         @id @default(uuid())
+  projectId           String?
+  name                String
+  titleTemplate       String
+  descriptionTemplate String
+  priority            TicketPriority @default(MEDIUM)
+  type                TicketType     @default(STANDARD)
+  createdAt           DateTime       @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model CustomField {
+  id          String   @id @default(uuid())
+  projectId   String
+  name        String
+  fieldType   String   @default("TEXT")
+  required    Boolean  @default(false)
+  options     String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  values  CustomFieldValue[]
+}
+
+model CustomFieldValue {
+  id            String   @id @default(uuid())
+  customFieldId String
+  ticketId      String
+  value         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  ticket      Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldId, ticketId])
+}
+
+model SavedFilter {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  filters   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Webhook {
+  id        String   @id @default(uuid())
+  projectId String?
+  name      String
+  url       String
+  events    String
+  active    Boolean  @default(true)
+  secret    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model TwoFactorAuth {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  secret    String
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

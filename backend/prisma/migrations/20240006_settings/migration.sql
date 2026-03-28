@@ -1,0 +1,13 @@
+ALTER TABLE "User"
+  ADD COLUMN IF NOT EXISTS "phone" TEXT,
+  ADD COLUMN IF NOT EXISTS "company" TEXT,
+  ADD COLUMN IF NOT EXISTS "avatar" TEXT;
+
+CREATE TABLE IF NOT EXISTS "SystemSetting" (
+  "id" TEXT NOT NULL,
+  "key" TEXT NOT NULL,
+  "value" TEXT NOT NULL,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "SystemSetting_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "SystemSetting_key_key" UNIQUE ("key")
+);

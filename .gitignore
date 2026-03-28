@@ -1,0 +1,35 @@
+# ─── Environment (NEVER commit real secrets) ─
+.env
+.env.local
+.env.production
+.env.*.local
+
+# ─── Node ────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Build output ────────────────────────────
+dist/
+build/
+
+# ─── Uploads (user files, logos, attachments) ─
+uploads/
+
+# ─── Logs ────────────────────────────────────
+*.log
+logs/
+
+# ─── OS ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDE ─────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+
+# ─── Docker overrides ────────────────────────
+docker-compose.override.yml
