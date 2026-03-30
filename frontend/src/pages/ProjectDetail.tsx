@@ -28,6 +28,9 @@ import {
   Paperclip,
   Download,
   ExternalLink,
+  MessageSquare,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -40,6 +43,7 @@ import type {
   ProjectFaq,
   ProjectDocument,
   ProjectAttachment,
+  ProjectMessage,
   User,
 } from '../types';
 
@@ -95,7 +99,8 @@ type TabId =
   | 'todo'
   | 'faq'
   | 'documents'
-  | 'ai';
+  | 'ai'
+  | 'board';
 
 interface TabDef {
   id: TabId;
@@ -111,6 +116,7 @@ const TABS: TabDef[] = [
   { id: 'faq', label: 'FAQ', icon: <HelpCircle size={16} /> },
   { id: 'documents', label: 'Documenti', icon: <FileText size={16} /> },
   { id: 'ai', label: 'AI Assistant', icon: <Bot size={16} /> },
+  { id: 'board', label: 'Bacheca', icon: <MessageSquare size={16} /> },
 ];
 
 // ─── Main component ───────────────────────────────────────
@@ -219,6 +225,7 @@ export default function ProjectDetail() {
         <DocumentsTab projectId={projectId!} isAdmin={isAdmin} />
       )}
       {activeTab === 'ai' && <AiTab projectId={projectId!} />}
+      {activeTab === 'board' && <BoardTab projectId={projectId!} />}
     </div>
   );
 }
@@ -2024,6 +2031,250 @@ function AiTab({ projectId }: { projectId: string }) {
           onClick={send}
           disabled={!input.trim() || sending}
           className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+        >
+          <Send size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// TAB 8 — Bacheca
+// ════════════════════════════════════════════════════════════
+
+function BoardTab({ projectId }: { projectId: string }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+  const [messages, setMessages] = useState<ProjectMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const fetchMessages = useCallback(async () => {
+    try {
+      const r = await api.get(`/messages/${projectId}`);
+      setMessages(r.data);
+    } catch {}
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => { fetchMessages(); }, [fetchMessages]);
+
+  // Scroll in fondo quando arrivano nuovi messaggi
+  useEffect(() => {
+    if (!loading) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, loading]);
+
+  // SSE: ascolta nuovi messaggi in tempo reale
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const es = new EventSource(`/api/sse/subscribe?token=${token}`);
+    es.addEventListener('board_message', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      if (data.projectId === projectId) {
+        setMessages(prev => {
+          if (prev.find(m => m.id === data.message.id)) return prev;
+          // Pinned in cima, poi per data
+          const updated = [...prev, data.message];
+          return updated.sort((a, b) => {
+            if (a.pinned !== b.pinned) return b.pinned ? 1 : -1;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          });
+        });
+      }
+    });
+    return () => es.close();
+  }, [projectId]);
+
+  const send = async () => {
+    if (!input.trim() || sending) return;
+    setSending(true);
+    try {
+      const r = await api.post(`/messages/${projectId}`, { content: input.trim() });
+      setMessages(prev => [...prev, r.data]);
+      setInput('');
+      textareaRef.current?.focus();
+    } catch {}
+    setSending(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  const togglePin = async (msg: ProjectMessage) => {
+    try {
+      const r = await api.patch(`/messages/${projectId}/${msg.id}/pin`);
+      setMessages(prev => {
+        const updated = prev.map(m => m.id === msg.id ? r.data : m);
+        return updated.sort((a, b) => {
+          if (a.pinned !== b.pinned) return b.pinned ? -1 : 1;
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        });
+      });
+    } catch {}
+  };
+
+  const deleteMsg = async (id: string) => {
+    if (!confirm('Eliminare questo messaggio?')) return;
+    try {
+      await api.delete(`/messages/${projectId}/${id}`);
+      setMessages(prev => prev.filter(m => m.id !== id));
+    } catch {}
+  };
+
+  const startEdit = (msg: ProjectMessage) => {
+    setEditId(msg.id);
+    setEditContent(msg.content);
+  };
+
+  const saveEdit = async () => {
+    if (!editId || !editContent.trim()) return;
+    try {
+      const r = await api.put(`/messages/${projectId}/${editId}`, { content: editContent.trim() });
+      setMessages(prev => prev.map(m => m.id === editId ? r.data : m));
+      setEditId(null);
+    } catch {}
+  };
+
+  const fmtTime = (d: string) => new Date(d).toLocaleString('it-IT', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+
+  const pinned = messages.filter(m => m.pinned);
+  const normal = messages.filter(m => !m.pinned);
+
+  if (loading) return (
+    <div className="flex justify-center py-12">
+      <Loader2 className="animate-spin text-indigo-500" size={24} />
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-260px)] min-h-[400px]">
+
+      {/* Messaggi fissati */}
+      {pinned.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {pinned.map(msg => (
+            <div key={msg.id} className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <Pin size={14} className="text-amber-500 mt-1 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-semibold text-amber-800">{msg.user.name}</span>
+                  <span className="text-xs text-amber-500">{fmtTime(msg.createdAt)}</span>
+                </div>
+                <p className="text-sm text-amber-900 whitespace-pre-wrap break-words">{msg.content}</p>
+              </div>
+              {(isAdmin || user?.id === msg.userId) && (
+                <button onClick={() => togglePin(msg)} className="p-1 text-amber-400 hover:text-amber-700 shrink-0">
+                  <PinOff size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Area messaggi scrollabile */}
+      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+        {normal.length === 0 && pinned.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
+            <MessageSquare size={40} className="opacity-20" />
+            <p className="text-sm">Nessun messaggio. Inizia la conversazione!</p>
+          </div>
+        )}
+        {normal.map(msg => {
+          const isMe = msg.userId === user?.id;
+          return (
+            <div key={msg.id} className={`flex gap-3 group ${isMe ? 'flex-row-reverse' : ''}`}>
+              {/* Avatar */}
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${isMe ? 'bg-indigo-500' : 'bg-slate-400'}`}>
+                {msg.user.name.charAt(0).toUpperCase()}
+              </div>
+
+              <div className={`max-w-[75%] ${isMe ? 'items-end' : 'items-start'} flex flex-col`}>
+                {/* Header */}
+                <div className={`flex items-center gap-2 mb-1 ${isMe ? 'flex-row-reverse' : ''}`}>
+                  <span className="text-xs font-semibold text-gray-700">{msg.user.name}</span>
+                  <span className="text-xs text-gray-400">{fmtTime(msg.createdAt)}</span>
+                  {msg.updatedAt !== msg.createdAt && (
+                    <span className="text-xs text-gray-300 italic">modificato</span>
+                  )}
+                </div>
+
+                {/* Bubble */}
+                {editId === msg.id ? (
+                  <div className="w-full">
+                    <textarea
+                      className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                      rows={3}
+                      value={editContent}
+                      onChange={e => setEditContent(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="flex gap-2 mt-1">
+                      <button onClick={saveEdit} className="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700">Salva</button>
+                      <button onClick={() => setEditId(null)} className="px-3 py-1 border text-xs rounded hover:bg-gray-50">Annulla</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`relative px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap break-words shadow-sm
+                    ${isMe
+                      ? 'bg-indigo-600 text-white rounded-tr-sm'
+                      : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm'}`}>
+                    {msg.content}
+
+                    {/* Azioni hover */}
+                    <div className={`absolute top-1 ${isMe ? 'left-0 -translate-x-full pl-0 pr-2' : 'right-0 translate-x-full pl-2'} hidden group-hover:flex items-center gap-1`}>
+                      {(isAdmin || user?.id === msg.userId) && (
+                        <>
+                          {isAdmin && (
+                            <button onClick={() => togglePin(msg)} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-amber-500" title="Fissa">
+                              <Pin size={13} />
+                            </button>
+                          )}
+                          {user?.id === msg.userId && (
+                            <button onClick={() => startEdit(msg)} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-500" title="Modifica">
+                              <Edit size={13} />
+                            </button>
+                          )}
+                          <button onClick={() => deleteMsg(msg.id)} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500" title="Elimina">
+                            <Trash2 size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="mt-3 flex items-end gap-2 border-t pt-3">
+        <textarea
+          ref={textareaRef}
+          className="flex-1 border rounded-xl px-4 py-2.5 text-sm resize-none focus:ring-2 focus:ring-indigo-400 focus:outline-none max-h-32"
+          placeholder="Scrivi un messaggio... (Invio per inviare, Shift+Invio per andare a capo)"
+          rows={1}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <button
+          onClick={send}
+          disabled={!input.trim() || sending}
+          className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition"
         >
           <Send size={18} />
         </button>

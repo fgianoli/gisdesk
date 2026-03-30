@@ -28,6 +28,7 @@ import savedFiltersRoutes from './routes/saved-filters.routes';
 import sseRoutes from './routes/sse.routes';
 import twofaRoutes from './routes/twofa.routes';
 import importRoutes from './routes/import.routes';
+import messagesRoutes from './routes/messages.routes';
 
 // Import SLA service to start interval
 import './services/sla.service';
@@ -128,6 +129,7 @@ app.use('/api/saved-filters', savedFiltersRoutes);
 app.use('/api/sse', sseRoutes);
 app.use('/api/2fa', twofaRoutes);
 app.use('/api/import', importRoutes);
+app.use('/api/messages', messagesRoutes);
 
 // Serve uploaded files (logo, attachments) – public access for logo
 app.get('/api/uploads/:filename', (req, res) => {

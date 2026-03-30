@@ -76,9 +76,10 @@ model User {
   uploadedProjectAttachments ProjectAttachment[]  @relation("UploadedProjectAttachments")
   timeEntries        TimeEntry[]
   notifications      Notification[]
-  auditLogs     AuditLog[]
-  savedFilters  SavedFilter[]
-  twoFactor     TwoFactorAuth?
+  auditLogs          AuditLog[]
+  savedFilters       SavedFilter[]
+  twoFactor          TwoFactorAuth?
+  projectMessages    ProjectMessage[]
 }
 
 model Project {
@@ -100,8 +101,22 @@ model Project {
   documents          ProjectDocument[]
   attachments        ProjectAttachment[]
   templates          TicketTemplate[]
-  customFields  CustomField[]
-  webhooks      Webhook[]
+  customFields       CustomField[]
+  webhooks           Webhook[]
+  messages           ProjectMessage[]
+}
+
+model ProjectMessage {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  content   String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
 }
 
 model ProjectUser {

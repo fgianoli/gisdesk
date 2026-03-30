@@ -133,6 +133,17 @@ export interface ProjectDocument {
   createdAt: string;
 }
 
+export interface ProjectMessage {
+  id: string;
+  projectId: string;
+  userId: string;
+  content: string;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+  user: Pick<User, 'id' | 'name' | 'email' | 'avatar'>;
+}
+
 export interface ProjectAttachment {
   id: string;
   projectId: string;
