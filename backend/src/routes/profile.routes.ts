@@ -37,9 +37,9 @@ router.get('/me', authMiddleware, async (req, res) => {
       where: { id: req.user!.userId },
       select: {
         id: true, email: true, name: true, role: true, active: true,
-        phone: true, company: true, avatar: true, createdAt: true,
+        phone: true, company: true, avatar: true, language: true, createdAt: true,
         _count: { select: { createdTickets: true } },
-      },
+      } as any,
     });
     if (!user) return res.status(404).json({ error: 'Utente non trovato' });
     res.json(user);
@@ -51,19 +51,20 @@ router.get('/me', authMiddleware, async (req, res) => {
 // PUT /me - update profile
 router.put('/me', authMiddleware, async (req, res) => {
   try {
-    const { name, phone, company } = req.body;
+    const { name, phone, company, language } = req.body;
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (phone !== undefined) data.phone = phone;
     if (company !== undefined) data.company = company;
+    if (language !== undefined) data.language = language;
 
     const user = await prisma.user.update({
       where: { id: req.user!.userId },
       data,
       select: {
         id: true, email: true, name: true, role: true, active: true,
-        phone: true, company: true, avatar: true, createdAt: true,
-      },
+        phone: true, company: true, avatar: true, language: true, createdAt: true,
+      } as any,
     });
     res.json(user);
   } catch {

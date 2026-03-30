@@ -9,6 +9,7 @@ import {
   Shield, Zap, Menu, X, Moon, Sun,
 } from 'lucide-react';
 import NotificationBell from '../NotificationBell';
+import { LanguageSelector } from '../LanguageSelector';
 
 export default function Sidebar() {
   const { user, logout, isAdmin } = useAuth();
@@ -225,13 +226,16 @@ export default function Sidebar() {
           <NotificationBell />
         </div>
 
-        <button
-          onClick={logout}
-          className="flex items-center gap-2 text-xs transition-colors hover:text-red-400"
-          style={{ color: 'var(--text-sidebar)' }}
-        >
-          <LogOut className="w-3.5 h-3.5" /> Esci
-        </button>
+        <div className="flex items-center justify-between mb-2">
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 text-xs transition-colors hover:text-red-400"
+            style={{ color: 'var(--text-sidebar)' }}
+          >
+            <LogOut className="w-3.5 h-3.5" /> Esci
+          </button>
+          <LanguageSelector compact />
+        </div>
 
         <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border-sidebar)' }}>
           <a

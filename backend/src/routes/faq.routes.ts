@@ -108,9 +108,9 @@ router.get('/documents/project/:projectId', authMiddleware, async (req, res) => 
 // Create document (admin)
 router.post('/documents', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const { projectId, title, content } = req.body;
+    const { projectId, title, content, url } = req.body;
     const doc = await prisma.projectDocument.create({
-      data: { projectId, title, content },
+      data: { projectId, title, content, url: url || null } as any,
     });
     res.status(201).json(doc);
   } catch {
@@ -121,10 +121,11 @@ router.post('/documents', authMiddleware, adminOnly, async (req, res) => {
 // Update document (admin)
 router.put('/documents/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const { title, content } = req.body;
+    const { title, content, url } = req.body;
     const data: any = {};
     if (title !== undefined) data.title = title;
     if (content !== undefined) data.content = content;
+    if (url !== undefined) data.url = url || null;
 
     const doc = await prisma.projectDocument.update({ where: { id: req.params.id }, data });
     res.json(doc);

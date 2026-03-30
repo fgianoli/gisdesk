@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import api from '../api/client';
 import { User } from '../types';
+import { setLanguage, type SupportedLanguage } from '../i18n';
 
 interface AuthContextType {
   user: User | null;
@@ -20,7 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem('token');
     if (token) {
       api.get('/auth/me')
-        .then((res) => setUser(res.data))
+        .then((res) => {
+          setUser(res.data);
+          if (res.data.language) {
+            setLanguage(res.data.language as SupportedLanguage);
+          }
+        })
         .catch(() => localStorage.removeItem('token'))
         .finally(() => setLoading(false));
     } else {
@@ -32,6 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await api.post('/auth/login', { email, password });
     localStorage.setItem('token', res.data.token);
     setUser(res.data.user);
+    if (res.data.user?.language) {
+      setLanguage(res.data.user.language as SupportedLanguage);
+    }
   };
 
   const logout = () => {

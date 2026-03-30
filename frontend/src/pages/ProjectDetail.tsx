@@ -27,6 +27,7 @@ import {
   Circle,
   Paperclip,
   Download,
+  ExternalLink,
 } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -1615,7 +1616,7 @@ function DocumentsTab({
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<ProjectDocument | null>(null);
-  const [form, setForm] = useState({ title: '', content: '' });
+  const [form, setForm] = useState({ title: '', content: '', url: '' });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1633,8 +1634,8 @@ function DocumentsTab({
 
   useEffect(() => { fetchDocs(); }, [fetchDocs]);
 
-  const openCreate = () => { setEditItem(null); setForm({ title: '', content: '' }); setShowForm(true); };
-  const openEdit = (doc: ProjectDocument) => { setEditItem(doc); setForm({ title: doc.title, content: doc.content }); setShowForm(true); };
+  const openCreate = () => { setEditItem(null); setForm({ title: '', content: '', url: '' }); setShowForm(true); };
+  const openEdit = (doc: ProjectDocument) => { setEditItem(doc); setForm({ title: doc.title, content: doc.content, url: doc.url || '' }); setShowForm(true); };
 
   const saveDoc = async () => {
     try {
@@ -1751,10 +1752,53 @@ function DocumentsTab({
         )}
       </div>
 
+      {/* ── Link Esterni ─────────────────────────────────── */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold">Link Esterni ({docs.filter(d => d.url && !d.content).length})</h2>
+          {isAdmin && (
+            <button onClick={openCreate}
+              className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700">
+              <Plus size={14} /> Aggiungi Link
+            </button>
+          )}
+        </div>
+
+        {docs.filter(d => d.url && !d.content).length === 0 ? (
+          <p className="text-gray-400 text-sm py-4 text-center">Nessun link esterno.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {docs.filter(d => d.url && !d.content).map((doc) => (
+              <div key={doc.id} className="bg-white rounded-lg shadow p-4 flex items-center justify-between">
+                <a
+                  href={doc.url!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-indigo-600 hover:text-indigo-800 font-medium text-sm truncate"
+                >
+                  <ExternalLink size={16} className="flex-shrink-0" />
+                  {doc.title}
+                </a>
+                {isAdmin && (
+                  <div className="flex gap-1 ml-2 flex-shrink-0">
+                    <button onClick={() => openEdit(doc)} className="p-1 text-gray-400 hover:text-blue-600">
+                      <Edit size={14} />
+                    </button>
+                    <button onClick={() => deleteDoc(doc.id)} className="p-1 text-gray-400 hover:text-red-600">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* ── Documenti testo ─────────────────────────────── */}
       <div>
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Documenti Testo ({docs.length})</h2>
+          <h2 className="text-lg font-semibold">Documenti Testo ({docs.filter(d => !d.url || d.content).length})</h2>
           {isAdmin && (
             <button onClick={openCreate}
               className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
@@ -1763,13 +1807,13 @@ function DocumentsTab({
           )}
         </div>
 
-      {docs.length === 0 ? (
+      {docs.filter(d => !d.url || d.content).length === 0 ? (
         <p className="text-gray-400 text-sm py-8 text-center">
           Nessun documento per questo progetto.
         </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {docs.map((doc) => (
+          {docs.filter(d => !d.url || d.content).map((doc) => (
             <div key={doc.id} className="bg-white rounded-lg shadow p-5">
               <div className="flex items-start justify-between mb-3">
                 <h3 className="font-semibold text-sm">{doc.title}</h3>
@@ -1793,6 +1837,12 @@ function DocumentsTab({
               <div className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
                 {doc.content}
               </div>
+              {doc.url && (
+                <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                  className="mt-2 flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800">
+                  <ExternalLink size={12} /> {doc.url}
+                </a>
+              )}
               <p className="text-xs text-gray-400 mt-3">
                 Creato il {fmt(doc.createdAt)}
               </p>
@@ -1833,6 +1883,17 @@ function DocumentsTab({
                   }
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  URL esterno (opzionale)
+                </label>
+                <input
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  placeholder="https://..."
+                  value={form.url || ''}
+                  onChange={(e) => setForm({ ...form, url: e.target.value })}
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button
@@ -1843,7 +1904,7 @@ function DocumentsTab({
               </button>
               <button
                 onClick={saveDoc}
-                disabled={!form.title || !form.content}
+                disabled={!form.title}
                 className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
               >
                 Salva

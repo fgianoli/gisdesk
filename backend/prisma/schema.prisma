@@ -62,6 +62,7 @@ model User {
   phone     String?
   company   String?
   avatar    String?
+  language  String  @default("it")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -221,6 +222,7 @@ model ProjectDocument {
   projectId String
   title     String
   content   String
+  url       String?   // link esterno opzionale
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

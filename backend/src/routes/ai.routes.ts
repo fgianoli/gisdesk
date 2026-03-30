@@ -42,8 +42,12 @@ router.post('/ask', authMiddleware, validate(aiAskSchema), async (req, res) => {
 
     if (docs.length > 0) {
       context += '## Documentazione del Progetto\n\n';
-      for (const doc of docs) {
-        context += `### ${doc.title}\n${doc.content}\n\n`;
+      for (const doc of docs as any[]) {
+        context += `### ${doc.title}\n${doc.content}\n`;
+        if (doc.url) {
+          context += `[LINK: ${doc.title}] → ${doc.url}\n`;
+        }
+        context += '\n';
       }
     }
 

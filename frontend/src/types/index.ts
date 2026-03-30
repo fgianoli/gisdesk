@@ -8,6 +8,7 @@ export interface User {
   phone?: string | null;
   company?: string | null;
   avatar?: string | null;
+  language?: string;
 }
 
 export interface Project {
@@ -128,6 +129,7 @@ export interface ProjectDocument {
   projectId: string;
   title: string;
   content: string;
+  url?: string | null;
   createdAt: string;
 }
 

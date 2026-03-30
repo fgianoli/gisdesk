@@ -1,8 +1,10 @@
 import React, { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useAppSettings } from '../context/AppSettingsContext';
 import { Globe } from 'lucide-react';
+import { LanguageSelector } from '../components/LanguageSelector';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState<string>('');
@@ -12,6 +14,7 @@ const Login: React.FC = () => {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { settings, logoUrl } = useAppSettings();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -33,6 +36,11 @@ const Login: React.FC = () => {
       className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: 'var(--bg-base)' }}
     >
+      {/* Language selector top right */}
+      <div className="absolute top-4 right-4 z-10">
+        <LanguageSelector compact />
+      </div>
+
       {/* Decorative gradient blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full"
@@ -58,8 +66,8 @@ const Login: React.FC = () => {
             </div>
           )}
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{settings.appName}</h1>
-          <p className="text-sm mt-1 font-medium text-indigo-500">Helpdesk &amp; Project Management</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Accedi al tuo account</p>
+          <p className="text-sm mt-1 font-medium text-indigo-500">{t('auth.loginSubtitle')}</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{t('auth.login')}</p>
         </div>
 
         {error && (
@@ -73,7 +81,7 @@ const Login: React.FC = () => {
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide mb-1.5"
               style={{ color: 'var(--text-secondary)' }}>
-              Email
+              {t('auth.email')}
             </label>
             <input
               type="email"
@@ -95,7 +103,7 @@ const Login: React.FC = () => {
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide mb-1.5"
               style={{ color: 'var(--text-secondary)' }}>
-              Password
+              {t('auth.password')}
             </label>
             <input
               type="password"
@@ -120,12 +128,12 @@ const Login: React.FC = () => {
             className="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' }}
           >
-            {isLoading ? 'Accesso in corso...' : 'Accedi →'}
+            {isLoading ? t('auth.loggingIn') : `${t('auth.loginButton')} →`}
           </button>
         </form>
 
         <p className="mt-8 text-center text-xs" style={{ color: 'var(--text-secondary)' }}>
-          Sviluppato da{' '}
+          {t('common.poweredBy')}{' '}
           <a href="https://studiogis.eu" target="_blank" rel="noopener noreferrer"
             className="text-indigo-500 hover:text-indigo-400 transition-colors font-medium">
             studiogis.eu
