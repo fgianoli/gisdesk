@@ -51,12 +51,13 @@ router.get('/me', authMiddleware, async (req, res) => {
 // PUT /me - update profile
 router.put('/me', authMiddleware, async (req, res) => {
   try {
-    const { name, phone, company, language } = req.body;
+    const { name, phone, company, language, email } = req.body;
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (phone !== undefined) data.phone = phone;
     if (company !== undefined) data.company = company;
     if (language !== undefined) data.language = language;
+    if (email !== undefined && email.trim() !== '') data.email = email.trim().toLowerCase();
 
     const user = await prisma.user.update({
       where: { id: req.user!.userId },

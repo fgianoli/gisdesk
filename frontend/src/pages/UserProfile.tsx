@@ -33,6 +33,7 @@ export default function UserProfile() {
 
   // Profile form
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [company, setCompany] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -53,6 +54,7 @@ export default function UserProfile() {
     api.get<ProfileData>('/profile/me').then((r) => {
       setProfile(r.data);
       setName(r.data.name);
+      setEmail(r.data.email);
       setPhone(r.data.phone || '');
       setCompany(r.data.company || '');
     }).catch(() => {}).finally(() => setLoading(false));
@@ -62,7 +64,7 @@ export default function UserProfile() {
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      const r = await api.put<ProfileData>('/profile/me', { name, phone, company });
+      const r = await api.put<ProfileData>('/profile/me', { name, email, phone, company });
       setProfile(r.data);
       setProfileMsg({ type: 'success', text: 'Profilo aggiornato con successo.' });
     } catch {
@@ -219,11 +221,10 @@ export default function UserProfile() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
               <input
                 type="email"
-                value={profile.email}
-                disabled
-                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
-              <p className="mt-1 text-xs text-gray-400">L'email non può essere modificata.</p>
             </div>
 
             <div>
