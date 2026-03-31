@@ -552,6 +552,7 @@ function TicketsTab({
     assigneeId: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -571,6 +572,15 @@ function TicketsTab({
   }, [fetchTickets, isAdmin]);
 
   const createTicket = async () => {
+    setCreateError(null);
+    if (!form.title || form.title.length < 3) {
+      setCreateError('Il titolo deve avere almeno 3 caratteri');
+      return;
+    }
+    if (!form.description || form.description.length < 10) {
+      setCreateError('La descrizione deve avere almeno 10 caratteri');
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post('/tickets', {
@@ -578,12 +588,20 @@ function TicketsTab({
         title: form.title,
         description: form.description,
         priority: form.priority,
-        assigneeId: form.assigneeId || null,
+        assigneeId: form.assigneeId || undefined,
       });
       setShowModal(false);
+      setCreateError(null);
       setForm({ title: '', description: '', priority: 'MEDIUM', assigneeId: '' });
       fetchTickets();
-    } catch {}
+    } catch (err: any) {
+      const data = err.response?.data;
+      if (data?.details?.length) {
+        setCreateError(data.details.map((d: any) => d.message).join(', '));
+      } else {
+        setCreateError(data?.error || 'Errore durante la creazione del ticket');
+      }
+    }
     setSubmitting(false);
   };
 
@@ -689,11 +707,15 @@ function TicketsTab({
                 <textarea
                   className="w-full border rounded px-3 py-2 text-sm"
                   rows={3}
+                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
                   value={form.description}
                   onChange={(e) =>
                     setForm({ ...form, description: e.target.value })
                   }
                 />
+                {form.description.length > 0 && form.description.length < 10 && (
+                  <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({form.description.length}/10)</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -738,19 +760,24 @@ function TicketsTab({
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 mt-6">
+            {createError && (
+              <div className="mt-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">
+                {createError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 mt-4">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => { setShowModal(false); setCreateError(null); }}
                 className="px-4 py-2 border rounded text-sm hover:bg-gray-50"
               >
                 Annulla
               </button>
               <button
                 onClick={createTicket}
-                disabled={!form.title || submitting}
+                disabled={!form.title || form.description.length < 10 || submitting}
                 className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
               >
-                Crea Ticket
+                {submitting ? 'Creazione...' : 'Crea Ticket'}
               </button>
             </div>
           </div>
