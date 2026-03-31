@@ -45,6 +45,7 @@ import type {
   ProjectAttachment,
   ProjectMessage,
   User,
+  TicketTemplate,
 } from '../types';
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -545,6 +546,7 @@ function TicketsTab({
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
+  const [templates, setTemplates] = useState<TicketTemplate[]>([]);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -553,6 +555,8 @@ function TicketsTab({
   });
   const [submitting, setSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -569,38 +573,42 @@ function TicketsTab({
     if (isAdmin) {
       api.get('/users').then((r) => setUsers(r.data)).catch(() => {});
     }
-  }, [fetchTickets, isAdmin]);
+    api.get('/templates', { params: { projectId } }).then((r) => setTemplates(r.data)).catch(() => {});
+  }, [fetchTickets, isAdmin, projectId]);
+
+  const applyTemplate = (templateId: string) => {
+    const t = templates.find((tpl) => tpl.id === templateId);
+    if (t) setForm((f) => ({ ...f, title: t.titleTemplate, description: t.descriptionTemplate, priority: t.priority }));
+  };
 
   const createTicket = async () => {
     setCreateError(null);
-    if (!form.title || form.title.length < 3) {
-      setCreateError('Il titolo deve avere almeno 3 caratteri');
-      return;
-    }
-    if (!form.description || form.description.length < 10) {
-      setCreateError('La descrizione deve avere almeno 10 caratteri');
-      return;
-    }
+    if (!form.title || form.title.length < 3) { setCreateError('Il titolo deve avere almeno 3 caratteri'); return; }
+    if (!form.description || form.description.length < 10) { setCreateError('La descrizione deve avere almeno 10 caratteri'); return; }
     setSubmitting(true);
     try {
-      await api.post('/tickets', {
+      const res = await api.post('/tickets', {
         projectId,
         title: form.title,
         description: form.description,
         priority: form.priority,
         assigneeId: form.assigneeId || undefined,
       });
+      const ticketId = res.data.id;
+      // Upload pending files
+      for (const file of pendingFiles) {
+        const fd = new FormData(); fd.append('file', file);
+        await api.post(`/tickets/${ticketId}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).catch(() => {});
+      }
       setShowModal(false);
       setCreateError(null);
       setForm({ title: '', description: '', priority: 'MEDIUM', assigneeId: '' });
+      setPendingFiles([]);
       fetchTickets();
     } catch (err: any) {
       const data = err.response?.data;
-      if (data?.details?.length) {
-        setCreateError(data.details.map((d: any) => d.message).join(', '));
-      } else {
-        setCreateError(data?.error || 'Errore durante la creazione del ticket');
-      }
+      if (data?.details?.length) setCreateError(data.details.map((d: any) => d.message).join(', '));
+      else setCreateError(data?.error || 'Errore durante la creazione del ticket');
     }
     setSubmitting(false);
   };
@@ -687,31 +695,42 @@ function TicketsTab({
       {/* Create ticket modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 mx-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">Nuovo Ticket</h3>
             <div className="space-y-3">
+              {/* Template selector */}
+              {templates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Usa template</label>
+                  <select
+                    className="w-full border rounded px-3 py-2 text-sm bg-blue-50 border-blue-200"
+                    defaultValue=""
+                    onChange={(e) => { if (e.target.value) applyTemplate(e.target.value); }}
+                  >
+                    <option value="">— Seleziona un template —</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Titolo
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
                 <input
                   className="w-full border rounded px-3 py-2 text-sm"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  placeholder="Titolo del ticket..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Descrizione
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
                 <textarea
                   className="w-full border rounded px-3 py-2 text-sm"
-                  rows={3}
+                  rows={4}
                   placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
                   value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
                 {form.description.length > 0 && form.description.length < 10 && (
                   <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({form.description.length}/10)</p>
@@ -719,19 +738,9 @@ function TicketsTab({
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Priorità
-                  </label>
-                  <select
-                    className="w-full border rounded px-3 py-2 text-sm"
-                    value={form.priority}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        priority: e.target.value as Ticket['priority'],
-                      })
-                    }
-                  >
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Priorità</label>
+                  <select className="w-full border rounded px-3 py-2 text-sm" value={form.priority}
+                    onChange={(e) => setForm({ ...form, priority: e.target.value as Ticket['priority'] })}>
                     <option value="LOW">Bassa</option>
                     <option value="MEDIUM">Media</option>
                     <option value="HIGH">Alta</option>
@@ -739,44 +748,58 @@ function TicketsTab({
                     <option value="FEATURE_REQUEST">Feature Request</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Assegnatario
-                  </label>
-                  <select
-                    className="w-full border rounded px-3 py-2 text-sm"
-                    value={form.assigneeId}
-                    onChange={(e) =>
-                      setForm({ ...form, assigneeId: e.target.value })
-                    }
-                  >
-                    <option value="">Nessuno</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
+                {isAdmin && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Assegnatario</label>
+                    <select className="w-full border rounded px-3 py-2 text-sm" value={form.assigneeId}
+                      onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
+                      <option value="">Nessuno</option>
+                      {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+              {/* File attachments */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Allegati (opzionale)</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    setPendingFiles((prev) => [...prev, ...files]);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                />
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 w-full justify-center">
+                  <Paperclip className="w-4 h-4" /> Aggiungi file
+                </button>
+                {pendingFiles.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {pendingFiles.map((f, i) => (
+                      <li key={i} className="flex items-center justify-between text-xs text-gray-600 bg-gray-50 rounded px-2 py-1">
+                        <span className="truncate">{f.name}</span>
+                        <button onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="ml-2 text-red-400 hover:text-red-600 flex-shrink-0">✕</button>
+                      </li>
                     ))}
-                  </select>
-                </div>
+                  </ul>
+                )}
               </div>
             </div>
             {createError && (
-              <div className="mt-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">
-                {createError}
-              </div>
+              <div className="mt-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{createError}</div>
             )}
             <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => { setShowModal(false); setCreateError(null); }}
-                className="px-4 py-2 border rounded text-sm hover:bg-gray-50"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={createTicket}
+              <button onClick={() => { setShowModal(false); setCreateError(null); setPendingFiles([]); }}
+                className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Annulla</button>
+              <button onClick={createTicket}
                 disabled={!form.title || form.description.length < 10 || submitting}
-                className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-              >
+                className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50">
                 {submitting ? 'Creazione...' : 'Crea Ticket'}
               </button>
             </div>

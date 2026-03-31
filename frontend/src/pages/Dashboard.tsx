@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -10,10 +10,12 @@ import {
   Users,
   TrendingUp,
   UserCheck,
+  Plus,
+  Paperclip,
 } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import type { Project, Ticket as TicketType } from '../types';
+import type { Project, Ticket as TicketType, TicketTemplate } from '../types';
 
 interface DashboardStats {
   totalProjects: number;
@@ -68,6 +70,15 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
+  // Create ticket modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({ projectId: '', title: '', description: '', priority: 'MEDIUM', type: 'STANDARD' });
+  const [createTemplates, setCreateTemplates] = useState<TicketTemplate[]>([]);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -111,6 +122,50 @@ const Dashboard: React.FC = () => {
       if (diff !== 0) return diff;
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
+
+  // Load templates when project is selected in create modal
+  useEffect(() => {
+    if (createForm.projectId) {
+      api.get('/templates', { params: { projectId: createForm.projectId } })
+        .then((r) => setCreateTemplates(r.data)).catch(() => setCreateTemplates([]));
+    } else {
+      setCreateTemplates([]);
+    }
+  }, [createForm.projectId]);
+
+  const applyTemplate = (templateId: string) => {
+    const t = createTemplates.find((tpl) => tpl.id === templateId);
+    if (t) setCreateForm((f) => ({ ...f, title: t.titleTemplate, description: t.descriptionTemplate, priority: t.priority }));
+  };
+
+  const handleCreate = async () => {
+    setCreateError(null);
+    if (!createForm.projectId) { setCreateError('Seleziona un progetto'); return; }
+    if (!createForm.title || createForm.title.length < 3) { setCreateError('Il titolo deve avere almeno 3 caratteri'); return; }
+    if (!createForm.description || createForm.description.length < 10) { setCreateError('La descrizione deve avere almeno 10 caratteri'); return; }
+    setCreateSubmitting(true);
+    try {
+      const res = await api.post('/tickets', { ...createForm });
+      const ticketId = res.data.id;
+      for (const file of pendingFiles) {
+        const fd = new FormData(); fd.append('file', file);
+        await api.post(`/tickets/${ticketId}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).catch(() => {});
+      }
+      setShowCreateModal(false);
+      setCreateForm({ projectId: '', title: '', description: '', priority: 'MEDIUM', type: 'STANDARD' });
+      setPendingFiles([]);
+      setCreateError(null);
+      // Refresh tickets
+      const ticketsRes = await api.get<TicketType[]>('/tickets');
+      setTickets(ticketsRes.data);
+      navigate(`/tickets/${ticketId}`);
+    } catch (err: any) {
+      const data = err.response?.data;
+      if (data?.details?.length) setCreateError(data.details.map((d: any) => d.message).join(', '));
+      else setCreateError(data?.error || 'Errore durante la creazione del ticket');
+    }
+    setCreateSubmitting(false);
+  };
 
   const ticketsByStatus = tickets.reduce<Record<string, number>>((acc, t) => {
     acc[t.status] = (acc[t.status] || 0) + 1;
@@ -173,11 +228,20 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">{t('dashboard.title')}</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {t('auth.welcomeBack', { name: user?.name ?? 'User' })}
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('dashboard.title')}</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {t('auth.welcomeBack', { name: user?.name ?? 'User' })}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition"
+        >
+          <Plus className="w-4 h-4" />
+          Crea Ticket
+        </button>
       </div>
 
       {/* Stat Cards */}
@@ -355,6 +419,123 @@ const Dashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Create Ticket Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-blue-600" /> Nuovo Ticket
+              </h2>
+              <button onClick={() => { setShowCreateModal(false); setCreateError(null); setPendingFiles([]); }}
+                className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              {/* Progetto */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Progetto *</label>
+                <select value={createForm.projectId}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, projectId: e.target.value, title: '', description: '' }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none">
+                  <option value="">Seleziona un progetto...</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+
+              {/* Template */}
+              {createForm.projectId && createTemplates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Usa template</label>
+                  <select defaultValue=""
+                    onChange={(e) => { if (e.target.value) applyTemplate(e.target.value); }}
+                    className="w-full border border-blue-200 bg-blue-50 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none">
+                    <option value="">— Seleziona un template —</option>
+                    {createTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Titolo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Titolo *</label>
+                <input value={createForm.title}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Titolo del ticket..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" />
+              </div>
+
+              {/* Descrizione */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione *</label>
+                <textarea value={createForm.description}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
+                  rows={4} placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-none" />
+                {createForm.description.length > 0 && createForm.description.length < 10 && (
+                  <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({createForm.description.length}/10)</p>
+                )}
+              </div>
+
+              {/* Priorità */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Priorità</label>
+                <select value={createForm.priority}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, priority: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none">
+                  <option value="LOW">Bassa</option>
+                  <option value="MEDIUM">Media</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="CRITICAL">Critica</option>
+                  <option value="FEATURE_REQUEST">Feature Request</option>
+                </select>
+              </div>
+
+              {/* Allegati */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Allegati (opzionale)</label>
+                <input ref={fileInputRef} type="file" multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    setPendingFiles((prev) => [...prev, ...files]);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }} />
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 w-full justify-center transition">
+                  <Paperclip className="w-4 h-4" /> Aggiungi file
+                </button>
+                {pendingFiles.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {pendingFiles.map((f, i) => (
+                      <li key={i} className="flex items-center justify-between text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 border border-gray-100">
+                        <span className="truncate">{f.name}</span>
+                        <button onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="ml-2 text-red-400 hover:text-red-600 flex-shrink-0 text-base leading-none">✕</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {createError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{createError}</div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100">
+              <button onClick={() => { setShowCreateModal(false); setCreateError(null); setPendingFiles([]); }}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition">
+                Annulla
+              </button>
+              <button onClick={handleCreate}
+                disabled={!createForm.projectId || !createForm.title || createForm.description.length < 10 || createSubmitting}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition">
+                {createSubmitting ? 'Creazione...' : 'Crea Ticket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
