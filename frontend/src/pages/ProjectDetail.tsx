@@ -565,8 +565,10 @@ function TicketsTab({
 
   useEffect(() => {
     fetchTickets();
-    api.get('/users').then((r) => setUsers(r.data)).catch(() => {});
-  }, [fetchTickets]);
+    if (isAdmin) {
+      api.get('/users').then((r) => setUsers(r.data)).catch(() => {});
+    }
+  }, [fetchTickets, isAdmin]);
 
   const createTicket = async () => {
     setSubmitting(true);

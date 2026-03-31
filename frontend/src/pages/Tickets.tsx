@@ -113,13 +113,21 @@ export default function TicketsPage() {
   };
 
   const handleCreate = async () => {
+    if (!form.projectId) { alert('Seleziona un progetto'); return; }
+    if (!form.title || form.title.length < 3) { alert('Il titolo deve avere almeno 3 caratteri'); return; }
+    if (!form.description || form.description.length < 10) { alert('La descrizione deve avere almeno 10 caratteri'); return; }
     try {
       await api.post('/tickets', { ...form, assigneeId: form.assigneeId || undefined });
       setShowCreate(false);
       setForm({ projectId: '', title: '', description: '', priority: 'MEDIUM', assigneeId: '', type: 'STANDARD' });
       fetchTickets();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Errore');
+      const data = err.response?.data;
+      if (data?.details?.length) {
+        alert(data.details.map((d: any) => `• ${d.message}`).join('\n'));
+      } else {
+        alert(data?.error || 'Errore durante la creazione del ticket');
+      }
     }
   };
 
@@ -441,7 +449,11 @@ export default function TicketsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
                 <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm" rows={4} />
+                  className="w-full border rounded px-3 py-2 text-sm" rows={4}
+                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..." />
+                {form.description.length > 0 && form.description.length < 10 && (
+                  <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({form.description.length}/10)</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
