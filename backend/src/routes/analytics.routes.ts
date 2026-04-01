@@ -140,4 +140,65 @@ router.get('/trend', authMiddleware, adminOnly, async (_req, res) => {
   }
 });
 
+// GET /api/analytics/agents - agent performance report (admin only)
+router.get('/agents', authMiddleware, adminOnly, async (_req, res) => {
+  try {
+    const now = new Date();
+
+    // Get all users who have assigned tickets
+    const usersWithTickets = await prisma.user.findMany({
+      where: {
+        assignedTickets: { some: {} },
+        active: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        assignedTickets: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            slaDeadline: true,
+          },
+        },
+      },
+    });
+
+    const agents = usersWithTickets.map((user) => {
+      const tickets = user.assignedTickets;
+      const resolved = tickets.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED');
+      const open = tickets.filter((t) => t.status === 'OPEN' || t.status === 'IN_PROGRESS');
+
+      const avgResolutionHours = resolved.length > 0
+        ? resolved.reduce((acc, t) => {
+            const diff = (new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime()) / 3600000;
+            return acc + diff;
+          }, 0) / resolved.length
+        : 0;
+
+      const slaBreaches = tickets.filter((t) => {
+        return t.slaDeadline && new Date(t.slaDeadline) < now && t.status !== 'RESOLVED' && t.status !== 'CLOSED';
+      }).length;
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        totalAssigned: tickets.length,
+        resolved: resolved.length,
+        avgResolutionHours: Math.round(avgResolutionHours),
+        openTickets: open.length,
+        slaBreaches,
+      };
+    });
+
+    res.json(agents);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
 export default router;

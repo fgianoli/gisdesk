@@ -1,0 +1,15 @@
+CREATE TABLE "Tag" (
+  "id" TEXT NOT NULL,
+  "name" TEXT NOT NULL,
+  "color" TEXT NOT NULL DEFAULT '#6366f1',
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Tag_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "Tag_name_key" ON "Tag"("name");
+CREATE TABLE "TicketTag" (
+  "ticketId" TEXT NOT NULL,
+  "tagId" TEXT NOT NULL,
+  CONSTRAINT "TicketTag_pkey" PRIMARY KEY ("ticketId", "tagId")
+);
+ALTER TABLE "TicketTag" ADD CONSTRAINT "TicketTag_ticketId_fkey" FOREIGN KEY ("ticketId") REFERENCES "Ticket"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "TicketTag" ADD CONSTRAINT "TicketTag_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag"("id") ON DELETE CASCADE ON UPDATE CASCADE;

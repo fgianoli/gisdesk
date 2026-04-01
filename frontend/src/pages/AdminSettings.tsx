@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Mail, Info, Save, Send, CheckCircle, AlertCircle, Upload, Trash2, Globe, GitBranch, Plus, X, Edit2 } from 'lucide-react';
+import { Settings, Mail, Info, Save, Send, CheckCircle, AlertCircle, Upload, Trash2, Globe, GitBranch, Plus, X, Edit2, MessageSquare, Tag } from 'lucide-react';
 import api from '../api/client';
 import { useAppSettings } from '../context/AppSettingsContext';
+import { CannedResponse, Tag as TagType } from '../types';
+import RichTextEditor from '../components/RichTextEditor';
 
-type Tab = 'email' | 'general' | 'system' | 'assignment';
+type Tab = 'email' | 'general' | 'system' | 'assignment' | 'canned' | 'tags';
 
 interface SettingsData {
   smtpHost: string;
@@ -114,6 +116,8 @@ export default function AdminSettings() {
     { key: 'email', label: 'Email SMTP', icon: <Mail className="w-4 h-4" /> },
     { key: 'general', label: 'Generale', icon: <Settings className="w-4 h-4" /> },
     { key: 'assignment', label: 'Assegnazione Auto', icon: <GitBranch className="w-4 h-4" /> },
+    { key: 'canned', label: 'Risposte Rapide', icon: <MessageSquare className="w-4 h-4" /> },
+    { key: 'tags', label: 'Tag', icon: <Tag className="w-4 h-4" /> },
     { key: 'system', label: 'Info Sistema', icon: <Info className="w-4 h-4" /> },
   ];
 
@@ -422,6 +426,8 @@ export default function AdminSettings() {
         </div>
       )}
       {activeTab === 'assignment' && <AssignmentRulesTab />}
+      {activeTab === 'canned' && <CannedResponsesTab />}
+      {activeTab === 'tags' && <TagsTab />}
     </div>
   );
 }
@@ -609,6 +615,242 @@ function AssignmentRulesTab() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CannedResponsesTab() {
+  const [responses, setResponses] = useState<CannedResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ title: '', content: '', category: '', sortOrder: 0 });
+  const [saving, setSaving] = useState(false);
+
+  const fetchResponses = async () => {
+    try {
+      const res = await api.get('/canned-responses');
+      setResponses(res.data);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchResponses(); }, []);
+
+  const handleSave = async () => {
+    if (!form.title || !form.content) { alert('Titolo e contenuto sono obbligatori'); return; }
+    setSaving(true);
+    try {
+      if (editingId) {
+        await api.put(`/canned-responses/${editingId}`, form);
+      } else {
+        await api.post('/canned-responses', form);
+      }
+      setShowForm(false);
+      setEditingId(null);
+      setForm({ title: '', content: '', category: '', sortOrder: 0 });
+      fetchResponses();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore');
+    }
+    setSaving(false);
+  };
+
+  const handleEdit = (cr: CannedResponse) => {
+    setEditingId(cr.id);
+    setForm({ title: cr.title, content: cr.content, category: cr.category || '', sortOrder: cr.sortOrder });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Eliminare questa risposta rapida?')) return;
+    try {
+      await api.delete(`/canned-responses/${id}`);
+      fetchResponses();
+    } catch {}
+  };
+
+  if (loading) return <div className="text-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-4 border-emerald-500 border-t-transparent mx-auto" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">Risposte Rapide</h2>
+            <p className="text-sm text-gray-500 mt-1">Testi predefiniti da usare nei commenti dei ticket.</p>
+          </div>
+          <button
+            onClick={() => { setShowForm(true); setEditingId(null); setForm({ title: '', content: '', category: '', sortOrder: 0 }); }}
+            className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700"
+          >
+            <Plus className="w-4 h-4" /> Aggiungi
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="bg-gray-50 border rounded-lg p-4 mb-4 space-y-3">
+            <h3 className="font-medium text-sm text-gray-800">{editingId ? 'Modifica Risposta' : 'Nuova Risposta Rapida'}</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Titolo *</label>
+                <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm" placeholder="Es: Richiesta informazioni aggiuntive" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Categoria</label>
+                <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm" placeholder="Es: Chiusura, Escalation..." />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Ordine</label>
+                <input type="number" value={form.sortOrder} onChange={e => setForm({ ...form, sortOrder: Number(e.target.value) })}
+                  className="w-full border rounded px-2 py-1.5 text-sm" min={0} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Contenuto *</label>
+              <RichTextEditor value={form.content} onChange={(v) => setForm({ ...form, content: v })} placeholder="Testo della risposta..." />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700 disabled:opacity-50">
+                {saving ? 'Salvataggio...' : 'Salva'}
+              </button>
+              <button onClick={() => { setShowForm(false); setEditingId(null); }} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">Annulla</button>
+            </div>
+          </div>
+        )}
+
+        {responses.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8">Nessuna risposta rapida. Creane una per velocizzare le risposte ai ticket.</p>
+        ) : (
+          <div className="space-y-2">
+            {responses.map((cr) => (
+              <div key={cr.id} className="flex items-center justify-between border rounded-lg p-3">
+                <div>
+                  <p className="font-medium text-sm text-gray-800">{cr.title}</p>
+                  {cr.category && <p className="text-xs text-gray-400 mt-0.5">{cr.category}</p>}
+                </div>
+                <div className="flex items-center gap-1 ml-4 flex-shrink-0">
+                  <button onClick={() => handleEdit(cr)} className="text-blue-600 hover:text-blue-800 p-1"><Edit2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => handleDelete(cr.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TagsTab() {
+  const [tags, setTags] = useState<TagType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ name: '', color: '#6366f1' });
+  const [saving, setSaving] = useState(false);
+
+  const fetchTags = async () => {
+    try {
+      const res = await api.get('/tags');
+      setTags(res.data);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchTags(); }, []);
+
+  const handleCreate = async () => {
+    if (!form.name) { alert('Il nome è obbligatorio'); return; }
+    setSaving(true);
+    try {
+      await api.post('/tags', form);
+      setForm({ name: '', color: '#6366f1' });
+      fetchTags();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore');
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Eliminare questo tag? Verrà rimosso da tutti i ticket.')) return;
+    try {
+      await api.delete(`/tags/${id}`);
+      fetchTags();
+    } catch {}
+  };
+
+  if (loading) return <div className="text-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-4 border-emerald-500 border-t-transparent mx-auto" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-gray-800">Tag</h2>
+          <p className="text-sm text-gray-500 mt-1">Crea e gestisci i tag per categorizzare i ticket.</p>
+        </div>
+
+        {/* Add tag form */}
+        <div className="bg-gray-50 border rounded-lg p-4 mb-6">
+          <h3 className="font-medium text-sm text-gray-700 mb-3">Nuovo Tag</h3>
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nome *</label>
+              <input
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                className="w-full border rounded px-2 py-1.5 text-sm"
+                placeholder="Es: bug, urgente, documentazione..."
+                onKeyDown={e => e.key === 'Enter' && handleCreate()}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Colore</label>
+              <input
+                type="color"
+                value={form.color}
+                onChange={e => setForm({ ...form, color: e.target.value })}
+                className="w-10 h-9 rounded border cursor-pointer"
+              />
+            </div>
+            <button
+              onClick={handleCreate}
+              disabled={saving || !form.name}
+              className="px-3 py-1.5 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" /> Crea
+            </button>
+          </div>
+          {form.name && (
+            <div className="mt-2">
+              <span className="text-xs text-gray-500">Anteprima: </span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium text-white" style={{ backgroundColor: form.color }}>
+                {form.name}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {tags.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">Nessun tag creato.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <div key={tag.id} className="flex items-center gap-1 border rounded-full pl-3 pr-1 py-1">
+                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />
+                <span className="text-sm font-medium text-gray-700 mr-1">{tag.name}</span>
+                <button
+                  onClick={() => handleDelete(tag.id)}
+                  className="text-gray-300 hover:text-red-500 p-0.5 rounded-full"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>

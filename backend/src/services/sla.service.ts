@@ -1,11 +1,29 @@
 import { PrismaClient } from '@prisma/client';
-import { sendEmail, slaWarningEmail, weeklyReportEmail } from './email.service';
+import { sendEmail, slaWarningEmail, slaExpiredEmail, weeklyReportEmail } from './email.service';
 
 const prisma = new PrismaClient();
 
-export function calculateSlaDeadline(slaHours: number): Date {
+export function calculateSlaDeadline(
+  project: {
+    slaHours: number;
+    slaCriticalHours?: number | null;
+    slaHighHours?: number | null;
+    slaMediumHours?: number | null;
+    slaLowHours?: number | null;
+  },
+  priority?: string,
+): Date | null {
+  if (priority === 'FEATURE_REQUEST') return null;
+  let hours: number;
+  switch (priority) {
+    case 'CRITICAL': hours = project.slaCriticalHours ?? project.slaHours; break;
+    case 'HIGH':     hours = project.slaHighHours ?? project.slaHours; break;
+    case 'MEDIUM':   hours = project.slaMediumHours ?? project.slaHours; break;
+    case 'LOW':      hours = project.slaLowHours ?? project.slaHours; break;
+    default:         hours = project.slaHours;
+  }
   const deadline = new Date();
-  deadline.setHours(deadline.getHours() + slaHours);
+  deadline.setHours(deadline.getHours() + hours);
   return deadline;
 }
 
@@ -45,6 +63,87 @@ export async function checkSlaWarnings() {
 
 // Run SLA check every 30 minutes
 setInterval(checkSlaWarnings, 30 * 60 * 1000);
+
+// SLA escalation: every 15 minutes
+// Warning: slaDeadline within next 1 hour AND not yet notified AND status not RESOLVED/CLOSED
+// Expired: slaDeadline has passed AND not yet notified AND status not RESOLVED/CLOSED
+export async function checkSlaEscalation() {
+  const now = new Date();
+  const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+  // Warning: expiring within 1 hour, not yet warned
+  const warningTickets = await prisma.ticket.findMany({
+    where: {
+      status: { notIn: ['RESOLVED', 'CLOSED'] },
+      slaDeadline: { lte: oneHourFromNow, gt: now },
+      slaWarningNotifiedAt: null,
+    },
+    include: {
+      assignee: true,
+      project: {
+        include: {
+          members: { include: { user: true }, where: { role: 'MANAGER' } },
+        },
+      },
+    },
+  });
+
+  for (const ticket of warningTickets) {
+    const recipients: string[] = [];
+    if (ticket.assignee?.email) recipients.push(ticket.assignee.email);
+    ticket.project.members.forEach((m) => {
+      if (m.user.email && !recipients.includes(m.user.email)) recipients.push(m.user.email);
+    });
+
+    if (recipients.length > 0 && ticket.slaDeadline) {
+      const { subject, html } = slaWarningEmail(ticket.title, ticket.project.name, ticket.id, ticket.slaDeadline);
+      await sendEmail(recipients, subject, html);
+    }
+
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { slaWarningNotifiedAt: now },
+    });
+  }
+
+  // Expired: slaDeadline passed, not yet notified as expired
+  const expiredTickets = await prisma.ticket.findMany({
+    where: {
+      status: { notIn: ['RESOLVED', 'CLOSED'] },
+      slaDeadline: { lt: now },
+      slaExpiredNotifiedAt: null,
+    },
+    include: {
+      assignee: true,
+      project: {
+        include: {
+          members: { include: { user: true }, where: { role: 'MANAGER' } },
+        },
+      },
+    },
+  });
+
+  for (const ticket of expiredTickets) {
+    const recipients: string[] = [];
+    if (ticket.assignee?.email) recipients.push(ticket.assignee.email);
+    ticket.project.members.forEach((m) => {
+      if (m.user.email && !recipients.includes(m.user.email)) recipients.push(m.user.email);
+    });
+
+    if (recipients.length > 0 && ticket.slaDeadline) {
+      const { subject, html } = slaExpiredEmail(ticket.title, ticket.id, ticket.slaDeadline);
+      await sendEmail(recipients, subject, html);
+    }
+
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { slaExpiredNotifiedAt: now },
+    });
+  }
+}
+
+// Every 15 minutes
+setInterval(checkSlaEscalation, 15 * 60 * 1000);
 
 // SLA escalation: every hour, notify manager of tickets expiring within 2 hours via in-app notification
 export async function slaEscalation() {

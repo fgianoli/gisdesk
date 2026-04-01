@@ -84,15 +84,19 @@ model User {
 }
 
 model Project {
-  id          String        @id @default(uuid())
-  name        String
-  description String?
-  status      ProjectStatus @default(ACTIVE)
-  startDate   DateTime?
-  endDate     DateTime?
-  slaHours    Int           @default(24)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  name               String
+  description        String?
+  status             ProjectStatus @default(ACTIVE)
+  startDate          DateTime?
+  endDate            DateTime?
+  slaHours           Int           @default(24)
+  slaCriticalHours   Int?
+  slaHighHours       Int?
+  slaMediumHours     Int?
+  slaLowHours        Int?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   members            ProjectUser[]
   tickets            Ticket[]
@@ -148,18 +152,20 @@ model ProjectUser {
 }
 
 model Ticket {
-  id          String         @id @default(uuid())
-  projectId   String
-  creatorId   String
-  assigneeId  String?
-  title       String
-  description String
-  priority    TicketPriority @default(MEDIUM)
-  status      TicketStatus   @default(OPEN)
-  type        TicketType     @default(STANDARD)
-  slaDeadline DateTime?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id                   String         @id @default(uuid())
+  projectId            String
+  creatorId            String
+  assigneeId           String?
+  title                String
+  description          String
+  priority             TicketPriority @default(MEDIUM)
+  status               TicketStatus   @default(OPEN)
+  type                 TicketType     @default(STANDARD)
+  slaDeadline          DateTime?
+  slaWarningNotifiedAt DateTime?
+  slaExpiredNotifiedAt DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   creator  User            @relation("TicketCreator", fields: [creatorId], references: [id])
@@ -172,6 +178,7 @@ model Ticket {
   blocks      TicketDependency[] @relation("BlockerTickets")
   customFieldValues CustomFieldValue[]
   satisfaction TicketSatisfaction?
+  tags        TicketTag[]
 }
 
 model TicketSatisfaction {
@@ -184,11 +191,12 @@ model TicketSatisfaction {
 }
 
 model TicketComment {
-  id        String   @id @default(uuid())
-  ticketId  String
-  userId    String
-  content   String
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  ticketId   String
+  userId     String
+  content    String
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id])
@@ -427,4 +435,29 @@ model TwoFactorAuth {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CannedResponse {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  category  String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model Tag {
+  id        String      @id @default(cuid())
+  name      String      @unique
+  color     String      @default("#6366f1")
+  tickets   TicketTag[]
+  createdAt DateTime    @default(now())
+}
+
+model TicketTag {
+  ticketId String
+  tagId    String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  @@id([ticketId, tagId])
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "TicketComment" ADD COLUMN "isInternal" BOOLEAN NOT NULL DEFAULT false;

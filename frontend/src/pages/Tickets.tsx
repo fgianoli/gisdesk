@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import { Ticket, Project, User, TicketTemplate, SavedFilter } from '../types';
+import { Ticket, Project, User, TicketTemplate, SavedFilter, Tag } from '../types';
 import { Plus, Filter, Clock, AlertTriangle, X, List, LayoutGrid, Download, Save, Bookmark, Trash2, Search } from 'lucide-react';
 import RichTextEditor from '../components/RichTextEditor';
 import {
@@ -89,7 +89,8 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<TicketTemplate[]>([]);
-  const [filters, setFilters] = useState({ projectId: '', status: '', priority: '' });
+  const [filters, setFilters] = useState({ projectId: '', status: '', priority: '', tagId: '' });
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ projectId: '', title: '', description: '', priority: 'MEDIUM', assigneeId: '', type: 'STANDARD' });
   const [loading, setLoading] = useState(true);
@@ -127,6 +128,7 @@ export default function TicketsPage() {
       if (filters.projectId) params.set('projectId', filters.projectId);
       if (filters.status) params.set('status', filters.status);
       if (filters.priority) params.set('priority', filters.priority);
+      if (filters.tagId) params.set('tagId', filters.tagId);
       const res = await api.get(`/tickets?${params}`);
       setTickets(res.data);
     } catch (err) {
@@ -157,6 +159,7 @@ export default function TicketsPage() {
     api.get('/projects').then((res) => setProjects(res.data));
     api.get('/templates').then((res) => setTemplates(res.data)).catch(() => {});
     api.get('/saved-filters').then((res) => setSavedFilters(res.data)).catch(() => {});
+    api.get('/tags').then((res) => setAvailableTags(res.data)).catch(() => {});
   }, []);
 
   useEffect(() => { fetchTickets(); }, [filters]);
@@ -441,9 +444,18 @@ export default function TicketsPage() {
           <option value="CRITICAL">Critica</option>
           <option value="FEATURE_REQUEST">Feature Request</option>
         </select>
-        {(filters.projectId || filters.status || filters.priority) && (
+        {availableTags.length > 0 && (
+          <select value={filters.tagId} onChange={(e) => setFilters({ ...filters, tagId: e.target.value })}
+            className="border rounded px-2 py-1.5 text-sm">
+            <option value="">Tutti i tag</option>
+            {availableTags.map((tag) => (
+              <option key={tag.id} value={tag.id}>{tag.name}</option>
+            ))}
+          </select>
+        )}
+        {(filters.projectId || filters.status || filters.priority || filters.tagId) && (
           <button
-            onClick={() => setFilters({ projectId: '', status: '', priority: '' })}
+            onClick={() => setFilters({ projectId: '', status: '', priority: '', tagId: '' })}
             className="text-xs text-gray-500 hover:text-red-500 flex items-center gap-1"
           >
             <X className="w-3 h-3" /> Reset

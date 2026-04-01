@@ -1,9 +1,57 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, adminOnly } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// GET /api/time-entries/export - export CSV (admin only)
+router.get('/export', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { projectId, userId, from, to } = req.query;
+    const where: any = {};
+
+    if (projectId) where.ticket = { ...(where.ticket || {}), projectId };
+    if (userId) where.userId = userId;
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(from as string);
+      if (to) {
+        const toDate = new Date(to as string);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
+      }
+    }
+
+    const entries = await prisma.timeEntry.findMany({
+      where,
+      include: {
+        ticket: { include: { project: { select: { name: true } } } },
+        user: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const escCsv = (v: string) => `"${(v || '').replace(/"/g, '""')}"`;
+    const headers = ['Ticket', 'Progetto', 'Agente', 'Minuti', 'Ore', 'Note', 'Data'];
+    const rows = entries.map((e) => [
+      escCsv(e.ticket?.title || ''),
+      escCsv(e.ticket?.project?.name || ''),
+      escCsv(e.user?.name || ''),
+      escCsv(String(e.minutes)),
+      escCsv((e.minutes / 60).toFixed(2)),
+      escCsv(e.note || ''),
+      escCsv(new Date(e.createdAt).toLocaleDateString('it-IT')),
+    ]);
+
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="time_report_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
 
 // GET /api/time-entries/ticket/:ticketId
 router.get('/ticket/:ticketId', authMiddleware, async (req, res) => {

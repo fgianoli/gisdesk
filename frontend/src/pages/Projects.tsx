@@ -11,6 +11,10 @@ interface ProjectForm {
   startDate: string;
   endDate: string;
   slaHours: number;
+  slaCriticalHours: string;
+  slaHighHours: string;
+  slaMediumHours: string;
+  slaLowHours: string;
 }
 
 const emptyForm: ProjectForm = {
@@ -19,6 +23,10 @@ const emptyForm: ProjectForm = {
   startDate: '',
   endDate: '',
   slaHours: 24,
+  slaCriticalHours: '4',
+  slaHighHours: '48',
+  slaMediumHours: '120',
+  slaLowHours: '336',
 };
 
 const statusConfig: Record<Project['status'], { label: string; color: string }> = {
@@ -76,6 +84,10 @@ export default function Projects() {
         startDate: form.startDate || null,
         endDate: form.endDate || null,
         slaHours: form.slaHours,
+        slaCriticalHours: form.slaCriticalHours ? parseInt(form.slaCriticalHours) : null,
+        slaHighHours: form.slaHighHours ? parseInt(form.slaHighHours) : null,
+        slaMediumHours: form.slaMediumHours ? parseInt(form.slaMediumHours) : null,
+        slaLowHours: form.slaLowHours ? parseInt(form.slaLowHours) : null,
       });
       closeModal();
       fetchProjects();
@@ -234,7 +246,7 @@ export default function Projects() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">SLA (ore)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">SLA Default (ore)</label>
                 <input
                   type="number"
                   required
@@ -244,6 +256,61 @@ export default function Projects() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   placeholder="24"
                 />
+              </div>
+
+              {/* SLA per priorità */}
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Configurazione SLA per Priorità</label>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Priorità</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Ore</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Descrizione</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      <tr>
+                        <td className="px-3 py-1.5"><span className="text-xs font-medium text-red-700 bg-red-100 px-2 py-0.5 rounded">CRITICA</span></td>
+                        <td className="px-3 py-1.5">
+                          <input type="number" min={1} value={form.slaCriticalHours}
+                            onChange={(e) => setForm({ ...form, slaCriticalHours: e.target.value })}
+                            className="w-20 border rounded px-2 py-1 text-sm" placeholder="4" />
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-500 text-xs">Grave indisponibilità, impatto totale</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-1.5"><span className="text-xs font-medium text-orange-700 bg-orange-100 px-2 py-0.5 rounded">ALTA</span></td>
+                        <td className="px-3 py-1.5">
+                          <input type="number" min={1} value={form.slaHighHours}
+                            onChange={(e) => setForm({ ...form, slaHighHours: e.target.value })}
+                            className="w-20 border rounded px-2 py-1 text-sm" placeholder="48" />
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-500 text-xs">Parziale interruzione, non aggirabile</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-1.5"><span className="text-xs font-medium text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded">MEDIA</span></td>
+                        <td className="px-3 py-1.5">
+                          <input type="number" min={1} value={form.slaMediumHours}
+                            onChange={(e) => setForm({ ...form, slaMediumHours: e.target.value })}
+                            className="w-20 border rounded px-2 py-1 text-sm" placeholder="120" />
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-500 text-xs">Servizio degradato, aggirabile</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-1.5"><span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded">BASSA</span></td>
+                        <td className="px-3 py-1.5">
+                          <input type="number" min={1} value={form.slaLowHours}
+                            onChange={(e) => setForm({ ...form, slaLowHours: e.target.value })}
+                            className="w-20 border rounded px-2 py-1 text-sm" placeholder="336" />
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-500 text-xs">Nessun impatto immediato, pianificabile (14gg)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Se non specificato, verrà usato il valore SLA Default.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

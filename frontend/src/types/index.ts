@@ -19,6 +19,10 @@ export interface Project {
   startDate: string | null;
   endDate: string | null;
   slaHours: number;
+  slaCriticalHours?: number | null;
+  slaHighHours?: number | null;
+  slaMediumHours?: number | null;
+  slaLowHours?: number | null;
   createdAt: string;
   members?: ProjectMember[];
   _count?: { tickets: number; todos: number; faqs: number; documents: number };
@@ -37,6 +41,28 @@ export interface TicketSatisfaction {
   ticketId: string;
   rating: number;
   comment?: string | null;
+  createdAt: string;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
+
+export interface TicketTag {
+  ticketId: string;
+  tagId: string;
+  tag: Tag;
+}
+
+export interface CannedResponse {
+  id: string;
+  title: string;
+  content: string;
+  category?: string | null;
+  sortOrder: number;
   createdAt: string;
 }
 
@@ -61,6 +87,7 @@ export interface Ticket {
   history?: TicketHistoryEntry[];
   attachments?: TicketAttachment[];
   satisfaction?: TicketSatisfaction | null;
+  tags?: TicketTag[];
   _count?: { comments: number };
 }
 
@@ -69,6 +96,7 @@ export interface TicketComment {
   ticketId: string;
   userId: string;
   content: string;
+  isInternal?: boolean;
   createdAt: string;
   user: Pick<User, 'id' | 'name'>;
 }

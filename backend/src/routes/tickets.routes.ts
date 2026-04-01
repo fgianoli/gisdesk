@@ -37,6 +37,7 @@ router.get('/search', authMiddleware, async (req, res) => {
         creator: { select: { id: true, name: true, email: true } },
         assignee: { select: { id: true, name: true, email: true } },
         _count: { select: { comments: true } },
+        tags: { include: { tag: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -102,13 +103,14 @@ router.get('/export', authMiddleware, async (req, res) => {
 // List tickets (admin: all or by project, client: only from assigned projects)
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { projectId, status, priority, type } = req.query;
+    const { projectId, status, priority, type, tagId } = req.query;
     const where: any = {};
 
     if (projectId) where.projectId = projectId;
     if (status) where.status = status;
     if (priority) where.priority = priority;
     if (type) where.type = type;
+    if (tagId) where.tags = { some: { tagId } };
 
     // Clients only see STANDARD tickets from their projects
     if (req.user!.role !== 'ADMIN') {
@@ -123,6 +125,7 @@ router.get('/', authMiddleware, async (req, res) => {
         creator: { select: { id: true, name: true, email: true } },
         assignee: { select: { id: true, name: true, email: true } },
         _count: { select: { comments: true } },
+        tags: { include: { tag: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -141,6 +144,7 @@ router.get('/', authMiddleware, async (req, res) => {
 // Get single ticket
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
+    const isAdmin = req.user!.role === 'ADMIN';
     const ticket = await prisma.ticket.findUnique({
       where: { id: req.params.id },
       include: {
@@ -148,6 +152,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
         creator: { select: { id: true, name: true, email: true } },
         assignee: { select: { id: true, name: true, email: true } },
         comments: {
+          where: isAdmin ? {} : { isInternal: false },
           include: { user: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },
@@ -159,6 +164,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
           include: { uploadedBy: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },
+        tags: { include: { tag: true } },
       },
     });
     // Append satisfaction separately to avoid TS error before migration
@@ -192,7 +198,7 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ error: 'Progetto non trovato' });
 
-    const slaDeadline = type !== 'SERVICE' ? calculateSlaDeadline(project.slaHours) : null;
+    const slaDeadline = type !== 'SERVICE' ? calculateSlaDeadline(project, priority || 'MEDIUM') : null;
 
     let ticket = await prisma.ticket.create({
       data: {
@@ -370,34 +376,40 @@ router.put('/:id', authMiddleware, async (req, res) => {
 // Add comment
 router.post('/:id/comments', authMiddleware, validate(createCommentSchema), async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, isInternal } = req.body;
     const ticket = await prisma.ticket.findUnique({
       where: { id: req.params.id },
       include: { project: { select: { name: true } } },
     });
     if (!ticket) return res.status(404).json({ error: 'Ticket non trovato' });
 
+    // Only admins/managers can set isInternal
+    const canBeInternal = req.user!.role === 'ADMIN';
+    const internal = canBeInternal ? (isInternal === true) : false;
+
     const commenter = await prisma.user.findUnique({ where: { id: req.user!.userId } });
     const comment = await prisma.ticketComment.create({
-      data: { ticketId: req.params.id, userId: req.user!.userId, content },
+      data: { ticketId: req.params.id, userId: req.user!.userId, content, isInternal: internal },
       include: { user: { select: { id: true, name: true } } },
     });
 
-    // Notify participants
-    const participants = await prisma.ticketComment.findMany({
-      where: { ticketId: req.params.id },
-      select: { user: { select: { email: true } } },
-      distinct: ['userId'],
-    });
-    const emails = [
-      ...new Set([
-        ...participants.map((p) => p.user.email),
-        ...(ticket.creatorId ? [(await prisma.user.findUnique({ where: { id: ticket.creatorId } }))?.email].filter(Boolean) : []),
-      ]),
-    ].filter((e) => e) as string[];
+    // Only notify for public comments
+    if (!internal) {
+      const participants = await prisma.ticketComment.findMany({
+        where: { ticketId: req.params.id, isInternal: false },
+        select: { user: { select: { email: true } } },
+        distinct: ['userId'],
+      });
+      const emails = [
+        ...new Set([
+          ...participants.map((p) => p.user.email),
+          ...(ticket.creatorId ? [(await prisma.user.findUnique({ where: { id: ticket.creatorId } }))?.email].filter(Boolean) : []),
+        ]),
+      ].filter((e) => e) as string[];
 
-    const { subject, html } = ticketCommentEmail(ticket.title, ticket.project.name, ticket.id, commenter?.name || 'Unknown');
-    if (emails.length > 0) await sendEmail(emails, subject, html);
+      const { subject, html } = ticketCommentEmail(ticket.title, ticket.project.name, ticket.id, commenter?.name || 'Unknown');
+      if (emails.length > 0) await sendEmail(emails, subject, html);
+    }
 
     // Handle @mentions: find @name patterns and notify matching users
     const mentionMatches = content.match(/@([\w\-\.]+)/g);
@@ -432,6 +444,85 @@ router.post('/:id/comments', authMiddleware, validate(createCommentSchema), asyn
     await logAudit(prisma, req.user!.userId, 'COMMENT_ADDED', 'Ticket', req.params.id, `Comment on: ${ticket.title}`, req.ip || undefined);
 
     res.status(201).json(comment);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
+// Merge ticket (admin only): merge source ticket into targetId
+router.post('/:id/merge', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { targetId } = req.body;
+    if (!targetId) return res.status(400).json({ error: 'targetId è obbligatorio' });
+    if (targetId === req.params.id) return res.status(400).json({ error: 'Non puoi unire un ticket con se stesso' });
+
+    const [source, target] = await Promise.all([
+      prisma.ticket.findUnique({ where: { id: req.params.id }, include: { comments: true, attachments: true } }),
+      prisma.ticket.findUnique({ where: { id: targetId } }),
+    ]);
+
+    if (!source) return res.status(404).json({ error: 'Ticket sorgente non trovato' });
+    if (!target) return res.status(404).json({ error: 'Ticket destinazione non trovato' });
+
+    // Copy comments from source to target with a note
+    for (const c of source.comments) {
+      await prisma.ticketComment.create({
+        data: {
+          ticketId: targetId,
+          userId: c.userId,
+          content: `[Unito da ticket #${source.id}] ${c.content}`,
+          isInternal: c.isInternal,
+          createdAt: c.createdAt,
+        },
+      });
+    }
+
+    // Copy attachments reference (update ticketId)
+    for (const att of source.attachments) {
+      await prisma.ticketAttachment.update({
+        where: { id: att.id },
+        data: { ticketId: targetId },
+      });
+    }
+
+    // Add comment to target
+    await prisma.ticketComment.create({
+      data: {
+        ticketId: targetId,
+        userId: req.user!.userId,
+        content: `<p>Il ticket <strong>#${source.id}</strong> ("${source.title}") è stato unito in questo ticket.</p>`,
+        isInternal: true,
+      },
+    });
+
+    // Close source ticket with comment
+    await prisma.ticketComment.create({
+      data: {
+        ticketId: source.id,
+        userId: req.user!.userId,
+        content: `<p>Questo ticket è stato <strong>unito</strong> nel ticket <a href="/tickets/${targetId}">#${targetId}</a>.</p>`,
+        isInternal: false,
+      },
+    });
+
+    await prisma.ticket.update({
+      where: { id: source.id },
+      data: { status: 'CLOSED' },
+    });
+
+    await logAudit(prisma, req.user!.userId, 'TICKET_MERGED', 'Ticket', source.id, JSON.stringify({ targetId }), req.ip || undefined);
+
+    const updatedTarget = await prisma.ticket.findUnique({
+      where: { id: targetId },
+      include: {
+        project: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        tags: { include: { tag: true } },
+      },
+    });
+
+    res.json(updatedTarget);
   } catch {
     res.status(500).json({ error: 'Errore server' });
   }

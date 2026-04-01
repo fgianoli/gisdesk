@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import { Project } from '../types';
 
 interface OverviewData {
   totTickets: number;
@@ -9,6 +10,17 @@ interface OverviewData {
   resolvedTickets: number;
   avgResolutionHours: number;
   slaCompliance: number;
+}
+
+interface AgentData {
+  id: string;
+  name: string;
+  email: string;
+  totalAssigned: number;
+  resolved: number;
+  avgResolutionHours: number;
+  openTickets: number;
+  slaBreaches: number;
 }
 
 interface StatusData { status: string; count: number }
@@ -202,7 +214,13 @@ export default function AnalyticsPage() {
   const [byPriority, setByPriority] = useState<PriorityData[]>([]);
   const [byProject, setByProject] = useState<ProjectData[]>([]);
   const [trend, setTrend] = useState<TrendData[]>([]);
+  const [agents, setAgents] = useState<AgentData[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Time export state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [timeExport, setTimeExport] = useState({ projectId: '', from: '', to: '' });
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -211,18 +229,22 @@ export default function AnalyticsPage() {
     }
     const load = async () => {
       try {
-        const [ov, bs, bp, bproj, tr] = await Promise.all([
+        const [ov, bs, bp, bproj, tr, ag, proj] = await Promise.all([
           api.get('/analytics/overview'),
           api.get('/analytics/by-status'),
           api.get('/analytics/by-priority'),
           api.get('/analytics/by-project'),
           api.get('/analytics/trend'),
+          api.get('/analytics/agents'),
+          api.get('/projects'),
         ]);
         setOverview(ov.data);
         setByStatus(bs.data);
         setByPriority(bp.data);
         setByProject(bproj.data);
         setTrend(tr.data);
+        setAgents(ag.data);
+        setProjects(proj.data);
       } catch (err) {
         console.error(err);
       } finally {
@@ -231,6 +253,31 @@ export default function AnalyticsPage() {
     };
     load();
   }, [isAdmin, navigate]);
+
+  const handleTimeExport = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (timeExport.projectId) params.set('projectId', timeExport.projectId);
+      if (timeExport.from) params.set('from', timeExport.from);
+      if (timeExport.to) params.set('to', timeExport.to);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/time-entries/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `time_report_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Errore durante l\'export');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading) return <div className="p-6 text-gray-500">Caricamento analytics...</div>;
 
@@ -287,9 +334,94 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Horizontal bars - ticket per project */}
-      <div className="bg-white rounded-lg shadow p-5">
+      <div className="bg-white rounded-lg shadow p-5 mb-6">
         <h2 className="font-semibold text-gray-900 mb-4">Ticket per Progetto</h2>
         <HorizontalBarChart data={byProject} />
+      </div>
+
+      {/* Agent Performance */}
+      <div className="bg-white rounded-lg shadow p-5 mb-6">
+        <h2 className="font-semibold text-gray-900 mb-4">Performance Agenti</h2>
+        {agents.length === 0 ? (
+          <p className="text-sm text-gray-400">Nessun dato disponibile.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Agente</th>
+                  <th className="px-3 py-2 text-right">Assegnati</th>
+                  <th className="px-3 py-2 text-right">Risolti</th>
+                  <th className="px-3 py-2 text-right">Aperti</th>
+                  <th className="px-3 py-2 text-right">Avg Risoluzione (h)</th>
+                  <th className="px-3 py-2 text-right">Violazioni SLA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {agents.map((agent) => (
+                  <tr key={agent.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-gray-800">{agent.name}</div>
+                      <div className="text-xs text-gray-400">{agent.email}</div>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold">{agent.totalAssigned}</td>
+                    <td className="px-3 py-2 text-right text-green-600 font-semibold">{agent.resolved}</td>
+                    <td className="px-3 py-2 text-right text-blue-600">{agent.openTickets}</td>
+                    <td className="px-3 py-2 text-right">{agent.avgResolutionHours}h</td>
+                    <td className="px-3 py-2 text-right">
+                      <span className={`font-semibold ${agent.slaBreaches > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {agent.slaBreaches}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Time Tracking Export */}
+      <div className="bg-white rounded-lg shadow p-5">
+        <h2 className="font-semibold text-gray-900 mb-4">Export Ore Lavorate</h2>
+        <div className="flex items-end gap-3 flex-wrap">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Progetto</label>
+            <select
+              value={timeExport.projectId}
+              onChange={(e) => setTimeExport({ ...timeExport, projectId: e.target.value })}
+              className="border rounded px-2 py-1.5 text-sm"
+            >
+              <option value="">Tutti i progetti</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Da</label>
+            <input
+              type="date"
+              value={timeExport.from}
+              onChange={(e) => setTimeExport({ ...timeExport, from: e.target.value })}
+              className="border rounded px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">A</label>
+            <input
+              type="date"
+              value={timeExport.to}
+              onChange={(e) => setTimeExport({ ...timeExport, to: e.target.value })}
+              className="border rounded px-2 py-1.5 text-sm"
+            />
+          </div>
+          <button
+            onClick={handleTimeExport}
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {exporting ? 'Export...' : 'Esporta CSV'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -78,16 +78,32 @@ export function ticketCommentEmail(ticketTitle: string, projectName: string, tic
   };
 }
 
-export function slaWarningEmail(ticketTitle: string, projectName: string, ticketId: string) {
+export function slaWarningEmail(ticketTitle: string, projectName: string, ticketId: string, deadline?: Date) {
   const url = `${env.FRONTEND_URL}/tickets/${ticketId}`;
+  const deadlineStr = deadline ? deadline.toLocaleString('it-IT') : '';
   return {
-    subject: `⚠️ [${projectName}] SLA in scadenza: ${ticketTitle}`,
+    subject: `⚠️ SLA in scadenza: ${ticketTitle}`,
     html: `
       <h2>⚠️ SLA in Scadenza</h2>
       <p><strong>Progetto:</strong> ${projectName}</p>
       <p><strong>Ticket:</strong> ${ticketTitle}</p>
+      ${deadlineStr ? `<p><strong>Scadenza:</strong> ${deadlineStr}</p>` : ''}
       <p>L'SLA di questo ticket sta per scadere. Intervieni al più presto.</p>
       <p><a href="${url}">Visualizza Ticket</a></p>
+    `,
+  };
+}
+
+export function slaExpiredEmail(ticketTitle: string, ticketId: string, deadline: Date) {
+  const url = `${env.FRONTEND_URL}/tickets/${ticketId}`;
+  return {
+    subject: `🚨 SLA SCADUTA: ${ticketTitle}`,
+    html: `
+      <h2 style="color:#dc2626">🚨 SLA SCADUTA</h2>
+      <p><strong>Ticket:</strong> ${ticketTitle}</p>
+      <p><strong>Scadenza:</strong> ${deadline.toLocaleString('it-IT')}</p>
+      <p>L'SLA di questo ticket è <strong>SCADUTA</strong>. È necessario un intervento urgente.</p>
+      <p><a href="${url}" style="background:#dc2626;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Visualizza Ticket</a></p>
     `,
   };
 }

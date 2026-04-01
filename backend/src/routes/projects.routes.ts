@@ -47,7 +47,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // Create project (admin)
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const { name, description, startDate, endDate, slaHours } = req.body;
+    const { name, description, startDate, endDate, slaHours, slaCriticalHours, slaHighHours, slaMediumHours, slaLowHours } = req.body;
     const project = await prisma.project.create({
       data: {
         name,
@@ -55,6 +55,10 @@ router.post('/', authMiddleware, adminOnly, async (req, res) => {
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
         slaHours: slaHours || 24,
+        slaCriticalHours: slaCriticalHours !== undefined ? Number(slaCriticalHours) || null : undefined,
+        slaHighHours: slaHighHours !== undefined ? Number(slaHighHours) || null : undefined,
+        slaMediumHours: slaMediumHours !== undefined ? Number(slaMediumHours) || null : undefined,
+        slaLowHours: slaLowHours !== undefined ? Number(slaLowHours) || null : undefined,
       },
     });
     await logAudit(prisma, req.user!.userId, 'PROJECT_CREATED', 'Project', project.id, JSON.stringify({ name }), req.ip || undefined);
@@ -67,7 +71,7 @@ router.post('/', authMiddleware, adminOnly, async (req, res) => {
 // Update project (admin)
 router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const { name, description, status, startDate, endDate, slaHours } = req.body;
+    const { name, description, status, startDate, endDate, slaHours, slaCriticalHours, slaHighHours, slaMediumHours, slaLowHours } = req.body;
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (description !== undefined) data.description = description;
@@ -75,6 +79,10 @@ router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
     if (startDate !== undefined) data.startDate = new Date(startDate);
     if (endDate !== undefined) data.endDate = new Date(endDate);
     if (slaHours !== undefined) data.slaHours = slaHours;
+    if (slaCriticalHours !== undefined) data.slaCriticalHours = slaCriticalHours !== null && slaCriticalHours !== '' ? Number(slaCriticalHours) : null;
+    if (slaHighHours !== undefined) data.slaHighHours = slaHighHours !== null && slaHighHours !== '' ? Number(slaHighHours) : null;
+    if (slaMediumHours !== undefined) data.slaMediumHours = slaMediumHours !== null && slaMediumHours !== '' ? Number(slaMediumHours) : null;
+    if (slaLowHours !== undefined) data.slaLowHours = slaLowHours !== null && slaLowHours !== '' ? Number(slaLowHours) : null;
 
     const project = await prisma.project.update({ where: { id: req.params.id }, data });
     await logAudit(prisma, req.user!.userId, 'PROJECT_UPDATED', 'Project', project.id, JSON.stringify(data), req.ip || undefined);

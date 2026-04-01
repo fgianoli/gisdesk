@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency } from '../types';
+import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency, CannedResponse, Tag } from '../types';
 import {
   ArrowLeft, Clock, AlertTriangle, Send, Edit2, Save, X, Paperclip, Download, Image,
-  Timer, Link2, Plus, Trash2, Star,
+  Timer, Link2, Plus, Trash2, Star, Lock, MessageSquare, Merge, Tag as TagIcon,
 } from 'lucide-react';
 import RichTextEditor from '../components/RichTextEditor';
 import RichTextDisplay from '../components/RichTextDisplay';
@@ -72,6 +72,7 @@ export default function TicketDetail() {
   const [searchParams] = useSearchParams();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [comment, setComment] = useState('');
+  const [isInternal, setIsInternal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
@@ -96,6 +97,20 @@ export default function TicketDetail() {
   const [projectTickets, setProjectTickets] = useState<Ticket[]>([]);
   const [depTicketId, setDepTicketId] = useState('');
   const [addingDep, setAddingDep] = useState(false);
+
+  // Canned responses
+  const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([]);
+  const [showCanned, setShowCanned] = useState(false);
+
+  // Tags
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [showTagPicker, setShowTagPicker] = useState(false);
+
+  // Merge
+  const [showMerge, setShowMerge] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
   const fetchTicket = async () => {
     try {
@@ -136,10 +151,34 @@ export default function TicketDetail() {
     } catch { /* ignore */ }
   };
 
+  const fetchCannedResponses = async () => {
+    try {
+      const res = await api.get('/canned-responses');
+      setCannedResponses(res.data);
+    } catch { /* ignore */ }
+  };
+
+  const fetchTags = async () => {
+    try {
+      const res = await api.get('/tags');
+      setAvailableTags(res.data);
+    } catch { /* ignore */ }
+  };
+
+  const fetchAllTickets = async () => {
+    try {
+      const res = await api.get('/tickets');
+      setAllTickets(res.data.filter((t: Ticket) => t.id !== id));
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
     fetchTicket();
     fetchTimeEntries();
     fetchDependencies();
+    fetchCannedResponses();
+    fetchTags();
+    if (isAdmin) fetchAllTickets();
   }, [id]);
 
   // Show survey modal if ?survey=1 in URL and ticket is resolved/closed
@@ -170,8 +209,9 @@ export default function TicketDetail() {
   const handleComment = async () => {
     if (!comment.trim()) return;
     try {
-      await api.post(`/tickets/${id}/comments`, { content: comment });
+      await api.post(`/tickets/${id}/comments`, { content: comment, isInternal });
       setComment('');
+      setIsInternal(false);
       fetchTicket();
     } catch (err) {
       console.error(err);
@@ -275,6 +315,38 @@ export default function TicketDetail() {
     }
   };
 
+  const handleAddTag = async (tagId: string) => {
+    try {
+      await api.post(`/tags/ticket/${id}`, { tagId });
+      setShowTagPicker(false);
+      fetchTicket();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore');
+    }
+  };
+
+  const handleRemoveTag = async (tagId: string) => {
+    try {
+      await api.delete(`/tags/ticket/${id}/${tagId}`);
+      fetchTicket();
+    } catch { /* ignore */ }
+  };
+
+  const handleMerge = async () => {
+    if (!mergeTargetId) return;
+    if (!confirm('Sei sicuro di voler unire questo ticket? L\'operazione non è reversibile.')) return;
+    setMerging(true);
+    try {
+      const res = await api.post(`/tickets/${id}/merge`, { targetId: mergeTargetId });
+      setShowMerge(false);
+      navigate(`/tickets/${res.data.id}`);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore durante il merge');
+    } finally {
+      setMerging(false);
+    }
+  };
+
   const formatMinutes = (minutes: number) => {
     if (minutes < 60) return `${minutes}m`;
     const h = Math.floor(minutes / 60);
@@ -291,6 +363,9 @@ export default function TicketDetail() {
   };
 
   const isImage = (mimetype: string) => mimetype.startsWith('image/');
+
+  const ticketTagIds = new Set(ticket?.tags?.map((tt) => tt.tagId) || []);
+  const unaddedTags = availableTags.filter((t) => !ticketTagIds.has(t.id));
 
   if (loading) return <div className="p-6">Caricamento...</div>;
   if (!ticket) return <div className="p-6">Ticket non trovato</div>;
@@ -324,11 +399,66 @@ export default function TicketDetail() {
                 </span>
               )}
             </div>
+
+            {/* Tags */}
+            <div className="flex items-center gap-1 flex-wrap mt-2">
+              {ticket.tags?.map((tt) => (
+                <span
+                  key={tt.tagId}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                  style={{ backgroundColor: tt.tag.color }}
+                >
+                  {tt.tag.name}
+                  {isAdmin && (
+                    <button onClick={() => handleRemoveTag(tt.tagId)} className="ml-1 opacity-70 hover:opacity-100">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+              {isAdmin && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowTagPicker((v) => !v)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-500"
+                  >
+                    <TagIcon className="w-3 h-3" /> Tag
+                  </button>
+                  {showTagPicker && (
+                    <div className="absolute left-0 top-7 z-20 bg-white border rounded-lg shadow-lg p-2 min-w-40">
+                      {unaddedTags.length === 0 ? (
+                        <p className="text-xs text-gray-400 px-2 py-1">Nessun tag disponibile</p>
+                      ) : (
+                        unaddedTags.map((tag) => (
+                          <button
+                            key={tag.id}
+                            onClick={() => handleAddTag(tag.id)}
+                            className="flex items-center gap-2 w-full px-2 py-1 rounded hover:bg-gray-50 text-sm"
+                          >
+                            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />
+                            {tag.name}
+                          </button>
+                        ))
+                      )}
+                      <button onClick={() => setShowTagPicker(false)} className="mt-1 w-full text-xs text-gray-400 hover:text-gray-600 text-right pr-1">Chiudi</button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {(isAdmin || ticket.creatorId === currentUser?.id) && !editing && (
               <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 rounded hover:bg-gray-200">
                 <Edit2 className="w-4 h-4" /> Modifica
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setShowMerge(true); fetchAllTickets(); }}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 border border-indigo-200"
+              >
+                <Merge className="w-4 h-4" /> Unisci
               </button>
             )}
             {(isAdmin || ticket.creatorId === currentUser?.id) && (
@@ -412,6 +542,41 @@ export default function TicketDetail() {
           </div>
         )}
       </div>
+
+      {/* Merge Modal */}
+      {showMerge && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Unisci Ticket</h3>
+              <button onClick={() => setShowMerge(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Seleziona il ticket destinazione. I commenti e gli allegati di questo ticket verranno copiati nel ticket selezionato, e questo ticket verrà chiuso.
+            </p>
+            <select
+              value={mergeTargetId}
+              onChange={(e) => setMergeTargetId(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mb-4"
+            >
+              <option value="">— Seleziona ticket destinazione —</option>
+              {allTickets.map((t) => (
+                <option key={t.id} value={t.id}>[{t.status}] {t.title}</option>
+              ))}
+            </select>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowMerge(false)} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Annulla</button>
+              <button
+                onClick={handleMerge}
+                disabled={!mergeTargetId || merging}
+                className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm"
+              >
+                {merging ? 'Unione...' : 'Unisci'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Time Tracking */}
       <div className="bg-white rounded-lg shadow p-6 mb-4">
@@ -729,9 +894,21 @@ export default function TicketDetail() {
 
         <div className="space-y-4 mb-4">
           {ticket.comments?.map((c) => (
-            <div key={c.id} className="bg-gray-50 rounded p-3">
+            <div
+              key={c.id}
+              className={c.isInternal
+                ? 'bg-amber-50 border-l-4 border-amber-400 rounded p-3'
+                : 'bg-gray-50 rounded p-3'
+              }
+            >
               <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-sm text-gray-900">{c.user.name}</span>
+                <div className="flex items-center gap-2">
+                  {c.isInternal && <Lock className="w-3.5 h-3.5 text-amber-600" />}
+                  <span className="font-medium text-sm text-gray-900">{c.user.name}</span>
+                  {c.isInternal && (
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">🔒 Nota interna</span>
+                  )}
+                </div>
                 <span className="text-xs text-gray-400">{new Date(c.createdAt).toLocaleString('it-IT')}</span>
               </div>
               <RichTextDisplay html={c.content} />
@@ -743,13 +920,55 @@ export default function TicketDetail() {
         </div>
 
         <div className="space-y-2">
+          {/* Canned responses */}
+          {isAdmin && cannedResponses.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowCanned((v) => !v)}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 border rounded hover:bg-gray-50 text-gray-600 mb-1"
+              >
+                <MessageSquare className="w-3.5 h-3.5" /> Risposte rapide
+              </button>
+              {showCanned && (
+                <div className="absolute z-20 bottom-full mb-1 left-0 bg-white border rounded-lg shadow-lg p-2 w-72 max-h-56 overflow-y-auto">
+                  {cannedResponses.map((cr) => (
+                    <button
+                      key={cr.id}
+                      onClick={() => { setComment(cr.content); setShowCanned(false); }}
+                      className="block w-full text-left px-3 py-2 hover:bg-gray-50 rounded text-sm"
+                    >
+                      <span className="font-medium text-gray-800">{cr.title}</span>
+                      {cr.category && <span className="text-xs text-gray-400 ml-1">({cr.category})</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <RichTextEditor
             value={comment}
             onChange={setComment}
             placeholder="Scrivi un commento... Usa @nome per menzionare un utente"
           />
           <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">Usa @nome per menzionare un utente del progetto</p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-gray-400">Usa @nome per menzionare un utente del progetto</p>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setIsInternal((v) => !v)}
+                  className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded border transition-colors ${
+                    isInternal
+                      ? 'bg-amber-100 text-amber-700 border-amber-300'
+                      : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  {isInternal ? 'Nota interna' : 'Nota interna'}
+                </button>
+              )}
+            </div>
             <button
               onClick={handleComment}
               disabled={!comment || comment === '<p></p>'}

@@ -30,6 +30,8 @@ import twofaRoutes from './routes/twofa.routes';
 import importRoutes from './routes/import.routes';
 import messagesRoutes from './routes/messages.routes';
 import assignmentRulesRoutes from './routes/assignment-rules.routes';
+import cannedResponsesRoutes from './routes/canned-responses.routes';
+import tagsRoutes from './routes/tags.routes';
 
 // Import SLA service to start interval
 import './services/sla.service';
@@ -132,6 +134,8 @@ app.use('/api/2fa', twofaRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/assignment-rules', assignmentRulesRoutes);
+app.use('/api/canned-responses', cannedResponsesRoutes);
+app.use('/api/tags', tagsRoutes);
 
 // Serve uploaded files (logo, attachments) – public access for logo
 app.get('/api/uploads/:filename', (req, res) => {
