@@ -236,7 +236,7 @@ export default function TicketsPage() {
   const applyFilterPreset = (sf: SavedFilter) => {
     try {
       const parsed = typeof sf.filters === 'string' ? JSON.parse(sf.filters) : sf.filters;
-      setFilters({ projectId: parsed.projectId || '', status: parsed.status || '', priority: parsed.priority || '' });
+      setFilters({ projectId: parsed.projectId || '', status: parsed.status || '', priority: parsed.priority || '', tagId: parsed.tagId || '' });
     } catch {}
   };
 
