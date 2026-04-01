@@ -247,6 +247,7 @@ function OverviewTab({
   isAdmin: boolean;
   onUpdate: () => void;
 }) {
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     name: project.name,
@@ -255,6 +256,10 @@ function OverviewTab({
     startDate: project.startDate?.slice(0, 10) ?? '',
     endDate: project.endDate?.slice(0, 10) ?? '',
     slaHours: project.slaHours,
+    slaCriticalHours: (project as any).slaCriticalHours ?? 4,
+    slaHighHours: (project as any).slaHighHours ?? 48,
+    slaMediumHours: (project as any).slaMediumHours ?? 120,
+    slaLowHours: (project as any).slaLowHours ?? 336,
   });
   const [members, setMembers] = useState<ProjectMember[]>(
     project.members ?? []
@@ -286,11 +291,25 @@ function OverviewTab({
         ...form,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
+        slaCriticalHours: Number(form.slaCriticalHours) || null,
+        slaHighHours: Number(form.slaHighHours) || null,
+        slaMediumHours: Number(form.slaMediumHours) || null,
+        slaLowHours: Number(form.slaLowHours) || null,
       });
       setEditing(false);
       onUpdate();
     } catch {}
     setSaving(false);
+  };
+
+  const deleteProject = async () => {
+    if (!confirm(`Eliminare definitivamente il progetto "${project.name}"?\n\nVerranno eliminati anche tutti i ticket, i documenti e i dati associati.`)) return;
+    try {
+      await api.delete(`/projects/${projectId}`);
+      navigate('/projects');
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore durante l\'eliminazione');
+    }
   };
 
   const addMember = async () => {
@@ -319,12 +338,20 @@ function OverviewTab({
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Informazioni Progetto</h2>
           {isAdmin && !editing && (
-            <button
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
-            >
-              <Edit size={14} /> Modifica
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-50 text-blue-600 border border-blue-200 rounded hover:bg-blue-100"
+              >
+                <Edit size={14} /> Impostazioni
+              </button>
+              <button
+                onClick={deleteProject}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100"
+              >
+                <Trash2 size={14} /> Elimina
+              </button>
+            </div>
           )}
         </div>
 
@@ -355,16 +382,9 @@ function OverviewTab({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Stato
-                </label>
-                <select
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  value={form.status}
-                  onChange={(e) =>
-                    setForm({ ...form, status: e.target.value as Project['status'] })
-                  }
-                >
+                <label className="block text-sm font-medium text-gray-700 mb-1">Stato</label>
+                <select className="w-full border rounded px-3 py-2 text-sm" value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value as Project['status'] })}>
                   <option value="ACTIVE">Attivo</option>
                   <option value="ON_HOLD">In Pausa</option>
                   <option value="COMPLETED">Completato</option>
@@ -372,45 +392,52 @@ function OverviewTab({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  SLA (ore)
-                </label>
-                <input
-                  type="number"
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  value={form.slaHours}
-                  onChange={(e) =>
-                    setForm({ ...form, slaHours: Number(e.target.value) })
-                  }
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data Inizio</label>
+                <input type="date" className="w-full border rounded px-3 py-2 text-sm"
+                  value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data Fine</label>
+                <input type="date" className="w-full border rounded px-3 py-2 text-sm"
+                  value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Data Inizio
-                </label>
-                <input
-                  type="date"
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  value={form.startDate}
-                  onChange={(e) =>
-                    setForm({ ...form, startDate: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Data Fine
-                </label>
-                <input
-                  type="date"
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  value={form.endDate}
-                  onChange={(e) =>
-                    setForm({ ...form, endDate: e.target.value })
-                  }
-                />
+
+            {/* SLA per priorità */}
+            <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <Clock size={14} /> Configurazione SLA per Priorità
+              </h3>
+              <div className="space-y-2">
+                {[
+                  { key: 'slaCriticalHours', label: 'Critica (Cat. 1)', color: 'bg-red-100 text-red-700', desc: 'Grave indisponibilità' },
+                  { key: 'slaHighHours',     label: 'Alta (Cat. 2)',    color: 'bg-orange-100 text-orange-700', desc: 'Parziale interruzione' },
+                  { key: 'slaMediumHours',   label: 'Media (Cat. 3)',   color: 'bg-yellow-100 text-yellow-700', desc: 'Servizio degradato' },
+                  { key: 'slaLowHours',      label: 'Bassa (Cat. 4)',   color: 'bg-green-100 text-green-700', desc: 'Pianificabile' },
+                ].map(({ key, label, color, desc }) => (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded w-32 text-center ${color}`}>{label}</span>
+                    <span className="text-xs text-gray-500 flex-1">{desc}</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min={1}
+                        className="w-20 border rounded px-2 py-1 text-sm text-center"
+                        value={(form as any)[key]}
+                        onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />
+                      <span className="text-xs text-gray-500">ore</span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center gap-3 pt-1 border-t border-gray-200 mt-1">
+                  <span className="text-xs font-medium px-2 py-0.5 rounded w-32 text-center bg-gray-200 text-gray-600">Default</span>
+                  <span className="text-xs text-gray-500 flex-1">Fallback se non specificato</span>
+                  <div className="flex items-center gap-1">
+                    <input type="number" min={1}
+                      className="w-20 border rounded px-2 py-1 text-sm text-center"
+                      value={form.slaHours}
+                      onChange={(e) => setForm({ ...form, slaHours: Number(e.target.value) })} />
+                    <span className="text-xs text-gray-500">ore</span>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="flex gap-2 pt-2">
@@ -444,13 +471,25 @@ function OverviewTab({
                 <span className="font-medium">{fmt(project.endDate)}</span>
               </div>
               <div>
-                <span className="text-gray-500">SLA:</span>{' '}
-                <span className="font-medium">{project.slaHours} ore</span>
-              </div>
-              <div>
                 <span className="text-gray-500">Creato il:</span>{' '}
                 <span className="font-medium">{fmt(project.createdAt)}</span>
               </div>
+            </div>
+            {/* SLA table */}
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Clock size={12} /> SLA per Priorità</p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                {[
+                  { label: '🔴 Critica', val: (project as any).slaCriticalHours ?? 4 },
+                  { label: '🟠 Alta',    val: (project as any).slaHighHours ?? 48 },
+                  { label: '🟡 Media',   val: (project as any).slaMediumHours ?? 120 },
+                  { label: '🟢 Bassa',   val: (project as any).slaLowHours ?? 336 },
+                ].map(({ label, val }) => (
+                  <div key={label} className="flex justify-between py-0.5">
+                    <span className="text-gray-500">{label}</span>
+                    <span className="font-medium">{val}h</span>
+                  </div>
+                ))}
             </div>
           </div>
         )}
@@ -493,7 +532,7 @@ function OverviewTab({
         {isAdmin && (
           <div className="border-t pt-4 space-y-2">
             <select
-              className="w-full border rounded px-3 py-2 text-sm"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               value={addMemberUserId}
               onChange={(e) => setAddMemberUserId(e.target.value)}
             >
@@ -506,24 +545,21 @@ function OverviewTab({
                   </option>
                 ))}
             </select>
-            <div className="flex gap-2">
-              <select
-                className="flex-1 border rounded px-3 py-2 text-sm"
-                value={addMemberRole}
-                onChange={(e) =>
-                  setAddMemberRole(e.target.value as 'MANAGER' | 'MEMBER')
-                }
-              >
-                <option value="MEMBER">Membro</option>
-                <option value="MANAGER">Admin Progetto (riceve notifiche ticket)</option>
-              </select>
-              <button
-                onClick={addMember}
-                className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-              >
-                <UserPlus size={14} /> Aggiungi
-              </button>
-            </div>
+            <select
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              value={addMemberRole}
+              onChange={(e) => setAddMemberRole(e.target.value as 'MANAGER' | 'MEMBER')}
+            >
+              <option value="MEMBER">Membro</option>
+              <option value="MANAGER">Admin Progetto (riceve notifiche ticket)</option>
+            </select>
+            <button
+              onClick={addMember}
+              disabled={!addMemberUserId}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              <UserPlus size={14} /> Aggiungi membro
+            </button>
           </div>
         )}
       </div>
