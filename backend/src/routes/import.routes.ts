@@ -33,7 +33,8 @@ router.post('/tickets', authMiddleware, adminOnly, upload.single('file'), async 
         const project = await prisma.project.findUnique({ where: { id: projectid } });
         if (!project) { errors.push(`Riga ${i + 1}: progetto ${projectid} non trovato`); continue; }
 
-        const slaDeadline = calculateSlaDeadline(project.slaHours);
+        const ticketPriority = (['LOW','MEDIUM','HIGH','CRITICAL','FEATURE_REQUEST'].includes((priority||'').toUpperCase()) ? priority.toUpperCase() : 'MEDIUM');
+        const slaDeadline = calculateSlaDeadline(project, ticketPriority);
         const ticket = await prisma.ticket.create({
           data: {
             projectId: projectid,
