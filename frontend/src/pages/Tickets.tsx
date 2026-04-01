@@ -1,9 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { Ticket, Project, User, TicketTemplate, SavedFilter } from '../types';
-import { Plus, Filter, Clock, AlertTriangle, X, List, LayoutGrid, Download, Save, Bookmark, Trash2 } from 'lucide-react';
+import { Plus, Filter, Clock, AlertTriangle, X, List, LayoutGrid, Download, Save, Bookmark, Trash2, Search } from 'lucide-react';
+import RichTextEditor from '../components/RichTextEditor';
+import {
+  DndContext, DragEndEvent, DragOverlay, DragStartEvent,
+  PointerSensor, useSensor, useSensors, closestCorners,
+} from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const priorityColors: Record<string, string> = {
   LOW: 'bg-green-100 text-green-800',
@@ -45,6 +52,37 @@ const kanbanColumnColors: Record<string, string> = {
   CLOSED: 'border-gray-300 bg-gray-50',
 };
 
+// Draggable Kanban Card
+function KanbanCard({ ticket, navigate }: { ticket: Ticket; navigate: (path: string) => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ticket.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={() => navigate(`/tickets/${ticket.id}`)}
+      className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-shadow"
+    >
+      <p className="text-sm font-medium text-gray-900 mb-2 leading-tight">{ticket.title}</p>
+      <p className="text-xs text-gray-500 mb-2">{ticket.project?.name}</p>
+      <div className="flex items-center justify-between">
+        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${priorityColors[ticket.priority]}`}>
+          {ticket.priority === 'FEATURE_REQUEST' ? 'Feature' : ticket.priority}
+        </span>
+        {ticket.assignee && (
+          <span className="text-xs text-gray-500 truncate max-w-20">{ticket.assignee.name}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TicketsPage() {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
@@ -65,6 +103,13 @@ export default function TicketsPage() {
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [showSaveFilter, setShowSaveFilter] = useState(false);
   const [filterName, setFilterName] = useState('');
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Ticket[] | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Kanban drag
+  const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const fetchProjectMembers = async (projectId: string) => {
     if (!projectId) { setProjectMembers([]); return; }
@@ -90,6 +135,23 @@ export default function TicketsPage() {
       setLoading(false);
     }
   };
+
+  const handleSearch = useCallback((q: string) => {
+    setSearchQuery(q);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!q.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await api.get(`/tickets/search?q=${encodeURIComponent(q)}`);
+        setSearchResults(res.data);
+      } catch {
+        setSearchResults([]);
+      }
+    }, 300);
+  }, []);
 
   useEffect(() => {
     api.get('/projects').then((res) => setProjects(res.data));
@@ -182,68 +244,113 @@ export default function TicketsPage() {
     } catch {}
   };
 
-  const exportCsv = () => {
-    const headers = ['ID', 'Titolo', 'Stato', 'Priorità', 'Progetto', 'Creatore', 'Assegnato a', 'Data creazione'];
-    const rows = tickets.map((t) => [
-      t.id,
-      `"${t.title.replace(/"/g, '""')}"`,
-      t.status,
-      t.priority,
-      t.project?.name || '',
-      t.creator?.name || '',
-      t.assignee?.name || '',
-      new Date(t.createdAt).toLocaleString('it-IT'),
-    ]);
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tickets_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportCsv = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.projectId) params.set('projectId', filters.projectId);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.priority) params.set('priority', filters.priority);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/tickets/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tickets_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Errore durante l\'esportazione');
+    }
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const dragged = tickets.find(t => t.id === event.active.id);
+    setActiveTicket(dragged || null);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveTicket(null);
+    if (!over) return;
+    const overId = over.id as string;
+    // Check if dropped on a column id
+    if (KANBAN_COLUMNS.includes(overId as Ticket['status'])) {
+      const ticket = tickets.find(t => t.id === active.id);
+      if (ticket && ticket.status !== overId) {
+        setTickets(prev => prev.map(t => t.id === active.id ? { ...t, status: overId as Ticket['status'] } : t));
+        try {
+          await api.put(`/tickets/${active.id}`, { status: overId });
+        } catch {
+          fetchTickets();
+        }
+      }
+    }
   };
 
   // Kanban view
   const renderKanban = () => (
-    <div className="flex gap-4 overflow-x-auto pb-4">
-      {KANBAN_COLUMNS.map((col) => {
-        const colTickets = tickets.filter((t) => t.status === col);
-        return (
-          <div key={col} className={`flex-shrink-0 w-64 rounded-lg border-2 ${kanbanColumnColors[col]} flex flex-col`}>
-            <div className="px-3 py-2 border-b border-current border-opacity-20">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm text-gray-700">{statusLabels[col]}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${statusColors[col]}`}>{colTickets.length}</span>
-              </div>
-            </div>
-            <div className="flex-1 p-2 space-y-2 overflow-y-auto max-h-[70vh]">
-              {colTickets.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => navigate(`/tickets/${t.id}`)}
-                  className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-shadow"
-                >
-                  <p className="text-sm font-medium text-gray-900 mb-2 leading-tight">{t.title}</p>
-                  <p className="text-xs text-gray-500 mb-2">{t.project?.name}</p>
-                  <div className="flex items-center justify-between">
-                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${priorityColors[t.priority]}`}>
-                      {t.priority === 'FEATURE_REQUEST' ? 'Feature' : t.priority}
-                    </span>
-                    {t.assignee && (
-                      <span className="text-xs text-gray-500 truncate max-w-20">{t.assignee.name}</span>
-                    )}
-                  </div>
+    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="flex gap-4 overflow-x-auto pb-4">
+        {KANBAN_COLUMNS.map((col) => {
+          const colTickets = tickets.filter((t) => t.status === col);
+          return (
+            <div
+              key={col}
+              id={col}
+              className={`flex-shrink-0 w-64 rounded-lg border-2 ${kanbanColumnColors[col]} flex flex-col`}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const ticketId = e.dataTransfer.getData('ticketId');
+                if (ticketId) {
+                  const ticket = tickets.find(t => t.id === ticketId);
+                  if (ticket && ticket.status !== col) {
+                    setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: col } : t));
+                    api.put(`/tickets/${ticketId}`, { status: col }).catch(() => fetchTickets());
+                  }
+                }
+              }}
+            >
+              <div
+                className="px-3 py-2 border-b border-current border-opacity-20"
+                data-droppable-id={col}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-sm text-gray-700">{statusLabels[col]}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${statusColors[col]}`}>{colTickets.length}</span>
                 </div>
-              ))}
-              {colTickets.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">Vuoto</p>
-              )}
+              </div>
+              <SortableContext items={colTickets.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex-1 p-2 space-y-2 overflow-y-auto max-h-[70vh]">
+                  {colTickets.map((t) => (
+                    <div
+                      key={t.id}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData('ticketId', t.id); }}
+                    >
+                      <KanbanCard ticket={t} navigate={navigate} />
+                    </div>
+                  ))}
+                  {colTickets.length === 0 && (
+                    <p className="text-xs text-gray-400 text-center py-4">Vuoto</p>
+                  )}
+                </div>
+              </SortableContext>
             </div>
+          );
+        })}
+      </div>
+      <DragOverlay>
+        {activeTicket && (
+          <div className="bg-white rounded-lg p-3 shadow-lg border border-blue-200 w-60 opacity-90">
+            <p className="text-sm font-medium text-gray-900">{activeTicket.title}</p>
           </div>
-        );
-      })}
-    </div>
+        )}
+      </DragOverlay>
+    </DndContext>
   );
 
   return (
@@ -284,6 +391,28 @@ export default function TicketsPage() {
             <Plus className="w-4 h-4" /> Nuovo Ticket
           </button>
         </div>
+      </div>
+
+      {/* Search bar */}
+      <div className="mb-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            placeholder="Cerca ticket per titolo o descrizione..."
+            className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+          {searchQuery && (
+            <button onClick={() => handleSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {searchResults !== null && (
+          <div className="mt-1 text-xs text-gray-500">{searchResults.length} risultati trovati</div>
+        )}
       </div>
 
       {/* Filters */}
@@ -448,12 +577,11 @@ export default function TicketsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
-                <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm" rows={4}
-                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..." />
-                {form.description.length > 0 && form.description.length < 10 && (
-                  <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({form.description.length}/10)</p>
-                )}
+                <RichTextEditor
+                  value={form.description}
+                  onChange={(html) => setForm({ ...form, description: html })}
+                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -500,21 +628,23 @@ export default function TicketsPage() {
         <div className="text-gray-500">Caricamento...</div>
       ) : viewMode === 'kanban' ? (
         renderKanban()
-      ) : tickets.length === 0 ? (
+      ) : (searchResults !== null ? searchResults : tickets).length === 0 ? (
         <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">Nessun ticket trovato</div>
       ) : (
         <div className="space-y-2">
           {/* Select all header */}
-          <div className="flex items-center gap-2 px-1 mb-1">
-            <input
-              type="checkbox"
-              checked={selectedIds.size === tickets.length && tickets.length > 0}
-              onChange={selectAll}
-              className="rounded"
-            />
-            <span className="text-xs text-gray-500">Seleziona tutti</span>
-          </div>
-          {tickets.map((t) => (
+          {!searchResults && (
+            <div className="flex items-center gap-2 px-1 mb-1">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === tickets.length && tickets.length > 0}
+                onChange={selectAll}
+                className="rounded"
+              />
+              <span className="text-xs text-gray-500">Seleziona tutti</span>
+            </div>
+          )}
+          {(searchResults !== null ? searchResults : tickets).map((t) => (
             <div key={t.id} className="flex items-center gap-2">
               <input
                 type="checkbox"

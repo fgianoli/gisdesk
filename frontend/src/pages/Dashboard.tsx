@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import RichTextEditor from '../components/RichTextEditor';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -468,13 +469,11 @@ const Dashboard: React.FC = () => {
               {/* Descrizione */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione *</label>
-                <textarea value={createForm.description}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
-                  rows={4} placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-none" />
-                {createForm.description.length > 0 && createForm.description.length < 10 && (
-                  <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({createForm.description.length}/10)</p>
-                )}
+                <RichTextEditor
+                  value={createForm.description}
+                  onChange={(html) => setCreateForm((f) => ({ ...f, description: html }))}
+                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
+                />
               </div>
 
               {/* Priorità */}

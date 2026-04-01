@@ -32,6 +32,24 @@ export default function NotificationBell() {
   useEffect(() => {
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
+
+    // SSE real-time notifications
+    const token = localStorage.getItem('token');
+    if (token) {
+      const evtSource = new EventSource(`/api/sse/subscribe?token=${encodeURIComponent(token)}`);
+      evtSource.addEventListener('notification', (e: MessageEvent) => {
+        try {
+          const notification = JSON.parse(e.data);
+          setUnreadCount((c) => c + 1);
+          setNotifications((prev) => [notification, ...prev].slice(0, 10));
+        } catch {}
+      });
+      return () => {
+        clearInterval(interval);
+        evtSource.close();
+      };
+    }
+
     return () => clearInterval(interval);
   }, []);
 

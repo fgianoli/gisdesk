@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware } from '../middleware/auth';
+import { pushEvent } from './sse.routes';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -15,9 +16,11 @@ export async function createNotification(
   linkUrl?: string,
 ) {
   try {
-    await prismaClient.notification.create({
+    const notification = await prismaClient.notification.create({
       data: { userId, type, title, body: body || null, linkUrl: linkUrl || null },
     });
+    // Push real-time SSE event
+    pushEvent(userId, 'notification', notification);
   } catch (err) {
     console.error('[NOTIFICATION ERROR]', err);
   }

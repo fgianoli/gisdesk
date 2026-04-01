@@ -32,6 +32,14 @@ export interface ProjectMember {
   user: Pick<User, 'id' | 'name' | 'email' | 'role'>;
 }
 
+export interface TicketSatisfaction {
+  id: string;
+  ticketId: string;
+  rating: number;
+  comment?: string | null;
+  createdAt: string;
+}
+
 export interface Ticket {
   id: string;
   projectId: string;
@@ -52,6 +60,7 @@ export interface Ticket {
   comments?: TicketComment[];
   history?: TicketHistoryEntry[];
   attachments?: TicketAttachment[];
+  satisfaction?: TicketSatisfaction | null;
   _count?: { comments: number };
 }
 

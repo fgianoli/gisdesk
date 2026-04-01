@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, adminOnly } from '../middleware/auth';
+import { logAudit } from './audit.routes';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -56,6 +57,7 @@ router.post('/', authMiddleware, adminOnly, async (req, res) => {
         slaHours: slaHours || 24,
       },
     });
+    await logAudit(prisma, req.user!.userId, 'PROJECT_CREATED', 'Project', project.id, JSON.stringify({ name }), req.ip || undefined);
     res.status(201).json(project);
   } catch {
     res.status(500).json({ error: 'Errore server' });
@@ -75,6 +77,7 @@ router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
     if (slaHours !== undefined) data.slaHours = slaHours;
 
     const project = await prisma.project.update({ where: { id: req.params.id }, data });
+    await logAudit(prisma, req.user!.userId, 'PROJECT_UPDATED', 'Project', project.id, JSON.stringify(data), req.ip || undefined);
     res.json(project);
   } catch {
     res.status(500).json({ error: 'Errore server' });

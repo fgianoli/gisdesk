@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import RichTextEditor from '../components/RichTextEditor';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -725,16 +726,11 @@ function TicketsTab({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
-                <textarea
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  rows={4}
-                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
+                <RichTextEditor
                   value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  onChange={(html) => setForm({ ...form, description: html })}
+                  placeholder="Descrivi il problema in dettaglio (min. 10 caratteri)..."
                 />
-                {form.description.length > 0 && form.description.length < 10 && (
-                  <p className="text-xs text-red-500 mt-1">Minimo 10 caratteri ({form.description.length}/10)</p>
-                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

@@ -6,9 +6,98 @@ import { calculateSlaDeadline, getSlaStatus } from '../services/sla.service';
 import { validate } from '../middleware/validate';
 import { createTicketSchema, createCommentSchema } from '../middleware/schemas';
 import { createNotification } from './notifications.routes';
+import { logAudit } from './audit.routes';
+import { pushEvent } from './sse.routes';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// Search tickets
+router.get('/search', authMiddleware, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string') return res.json([]);
+
+    const where: any = {
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+      ],
+    };
+
+    if (req.user!.role !== 'ADMIN') {
+      where.project = { members: { some: { userId: req.user!.userId } } };
+      where.type = 'STANDARD';
+    }
+
+    const tickets = await prisma.ticket.findMany({
+      where,
+      include: {
+        project: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        _count: { select: { comments: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const ticketsWithSla = tickets.map((t) => ({ ...t, slaStatus: getSlaStatus(t.slaDeadline) }));
+    res.json(ticketsWithSla);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
+// Export tickets as CSV
+router.get('/export', authMiddleware, async (req, res) => {
+  try {
+    const { projectId, status, priority, type } = req.query;
+    const where: any = {};
+
+    if (projectId) where.projectId = projectId;
+    if (status) where.status = status;
+    if (priority) where.priority = priority;
+    if (type) where.type = type;
+
+    if (req.user!.role !== 'ADMIN') {
+      where.project = { members: { some: { userId: req.user!.userId } } };
+      where.type = 'STANDARD';
+    }
+
+    const tickets = await prisma.ticket.findMany({
+      where,
+      include: {
+        project: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const escCsv = (v: string) => `"${(v || '').replace(/"/g, '""')}"`;
+    const headers = ['ID', 'Titolo', 'Progetto', 'Stato', 'Priorità', 'Tipo', 'Creatore', 'Assegnatario', 'Creato Il', 'SLA Scadenza'];
+    const rows = tickets.map((t) => [
+      escCsv(t.id),
+      escCsv(t.title),
+      escCsv(t.project?.name || ''),
+      escCsv(t.status),
+      escCsv(t.priority),
+      escCsv(t.type),
+      escCsv(t.creator?.name || ''),
+      escCsv(t.assignee?.name || ''),
+      escCsv(new Date(t.createdAt).toLocaleString('it-IT')),
+      escCsv(t.slaDeadline ? new Date(t.slaDeadline).toLocaleString('it-IT') : ''),
+    ]);
+
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="tickets_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
 
 // List tickets (admin: all or by project, client: only from assigned projects)
 router.get('/', authMiddleware, async (req, res) => {
@@ -72,6 +161,10 @@ router.get('/:id', authMiddleware, async (req, res) => {
         },
       },
     });
+    // Append satisfaction separately to avoid TS error before migration
+    let satisfactionData = null;
+    try { satisfactionData = await (prisma as any).ticketSatisfaction.findUnique({ where: { ticketId: req.params.id } }); } catch {}
+    const ticketWithSatisfaction = ticket ? { ...ticket, satisfaction: satisfactionData } : null;
 
     if (!ticket) return res.status(404).json({ error: 'Ticket non trovato' });
 
@@ -80,7 +173,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Accesso negato' });
     }
 
-    res.json({ ...ticket, slaStatus: getSlaStatus(ticket.slaDeadline) });
+    res.json({ ...ticketWithSatisfaction, slaStatus: getSlaStatus(ticket.slaDeadline) });
   } catch {
     res.status(500).json({ error: 'Errore server' });
   }
@@ -101,7 +194,7 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
 
     const slaDeadline = type !== 'SERVICE' ? calculateSlaDeadline(project.slaHours) : null;
 
-    const ticket = await prisma.ticket.create({
+    let ticket = await prisma.ticket.create({
       data: {
         projectId,
         creatorId: req.user!.userId,
@@ -117,6 +210,36 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
         creator: { select: { id: true, name: true, email: true } },
       },
     });
+
+    // Auto-assignment: if no assigneeId, check AssignmentRule
+    if (!ticket.assigneeId) {
+      try {
+        const rule = await (prisma as any).assignmentRule?.findFirst({
+          where: {
+            isActive: true,
+            OR: [
+              { projectId: ticket.projectId },
+              { projectId: null },
+            ],
+            AND: [
+              { OR: [{ priority: ticket.priority }, { priority: null }] },
+              { OR: [{ type: ticket.type }, { type: null }] },
+            ],
+          },
+          orderBy: { sortOrder: 'asc' },
+        });
+        if (rule) {
+          await prisma.ticket.update({
+            where: { id: ticket.id },
+            data: { assigneeId: rule.assigneeId },
+          });
+          ticket = { ...ticket, assigneeId: rule.assigneeId };
+        }
+      } catch { /* AssignmentRule model may not exist yet */ }
+    }
+
+    // Audit log
+    await logAudit(prisma, req.user!.userId, 'TICKET_CREATED', 'Ticket', ticket.id, JSON.stringify({ title: ticket.title, projectId: ticket.projectId }), req.ip || undefined);
 
     // Send email notifications
     const projectMembers = await prisma.projectUser.findMany({
@@ -202,6 +325,27 @@ router.put('/:id', authMiddleware, async (req, res) => {
       });
     }
 
+    // Audit log
+    if (historyEntries.length > 0) {
+      await logAudit(prisma, req.user!.userId, 'TICKET_UPDATED', 'Ticket', ticket.id, JSON.stringify(historyEntries), req.ip || undefined);
+    }
+
+    // Send satisfaction survey email if status changed to RESOLVED or CLOSED
+    const statusChange = historyEntries.find(e => e.field === 'status');
+    if (statusChange && (statusChange.newValue === 'RESOLVED' || statusChange.newValue === 'CLOSED')) {
+      try {
+        const creator = await prisma.user.findUnique({ where: { id: ticket.creatorId } });
+        if (creator?.email) {
+          const surveyUrl = `${process.env.FRONTEND_URL}/tickets/${ticket.id}?survey=1`;
+          await sendEmail(
+            creator.email,
+            `Il tuo ticket "${ticket.title}" è stato ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'} - Lascia una valutazione`,
+            `<h2>Come è andata?</h2><p>Il ticket <strong>${ticket.title}</strong> è stato ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'}.</p><p>Ci farebbe molto piacere ricevere un tuo feedback sulla qualità del supporto ricevuto.</p><p><a href="${surveyUrl}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Lascia una valutazione</a></p>`,
+          );
+        }
+      } catch { /* ignore email errors */ }
+    }
+
     // Send email for status/priority changes
     if (historyEntries.length > 0) {
       const projectMembers = await prisma.projectUser.findMany({
@@ -284,6 +428,9 @@ router.post('/:id/comments', authMiddleware, validate(createCommentSchema), asyn
       }
     }
 
+    // Audit log for comment
+    await logAudit(prisma, req.user!.userId, 'COMMENT_ADDED', 'Ticket', req.params.id, `Comment on: ${ticket.title}`, req.ip || undefined);
+
     res.status(201).json(comment);
   } catch {
     res.status(500).json({ error: 'Errore server' });
@@ -300,8 +447,35 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Non autorizzato: puoi eliminare solo i tuoi ticket' });
     }
 
+    await logAudit(prisma, req.user!.userId, 'TICKET_DELETED', 'Ticket', ticket.id, JSON.stringify({ title: ticket.title }), req.ip || undefined);
     await prisma.ticket.delete({ where: { id: req.params.id } });
     res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
+// Submit satisfaction survey
+router.post('/:id/satisfaction', authMiddleware, async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Valutazione non valida (1-5)' });
+    }
+
+    const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket non trovato' });
+    if (ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED') {
+      return res.status(400).json({ error: 'Il ticket deve essere risolto o chiuso per lasciare una valutazione' });
+    }
+
+    const satisfaction = await (prisma as any).ticketSatisfaction.upsert({
+      where: { ticketId: req.params.id },
+      update: { rating, comment: comment || null },
+      create: { ticketId: req.params.id, rating, comment: comment || null },
+    });
+
+    res.status(201).json(satisfaction);
   } catch {
     res.status(500).json({ error: 'Errore server' });
   }

@@ -116,3 +116,47 @@ html.dark ::-webkit-scrollbar-thumb { background: #334155; }
 }
 /* Override for animations that shouldn't inherit transition */
 .animate-spin { transition: none !important; }
+
+/* ─── TipTap Editor styles ──────────────────────────────── */
+.ProseMirror {
+  outline: none;
+  min-height: 100px;
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #adb5bd;
+  pointer-events: none;
+  height: 0;
+}
+.ProseMirror h1 { font-size: 1.5em; font-weight: bold; margin: 0.5em 0; }
+.ProseMirror h2 { font-size: 1.25em; font-weight: bold; margin: 0.5em 0; }
+.ProseMirror h3 { font-size: 1.1em; font-weight: bold; margin: 0.5em 0; }
+.ProseMirror ul { list-style: disc; padding-left: 1.5em; }
+.ProseMirror ol { list-style: decimal; padding-left: 1.5em; }
+.ProseMirror blockquote { border-left: 3px solid #e2e8f0; padding-left: 1em; color: #64748b; }
+.ProseMirror pre { background: #f1f5f9; padding: 0.75em 1em; border-radius: 6px; font-family: monospace; white-space: pre-wrap; }
+.ProseMirror code { background: #f1f5f9; padding: 0.1em 0.3em; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
+.ProseMirror a { color: #2563eb; text-decoration: underline; }
+.ProseMirror img { max-width: 100%; height: auto; border-radius: 4px; }
+.ProseMirror strong { font-weight: bold; }
+.ProseMirror em { font-style: italic; }
+.ProseMirror s { text-decoration: line-through; }
+.ProseMirror u { text-decoration: underline; }
+
+/* Rich text display prose */
+.prose h1 { font-size: 1.5em; font-weight: bold; margin: 0.5em 0; }
+.prose h2 { font-size: 1.25em; font-weight: bold; margin: 0.5em 0; }
+.prose h3 { font-size: 1.1em; font-weight: bold; margin: 0.5em 0; }
+.prose ul { list-style: disc; padding-left: 1.5em; margin: 0.5em 0; }
+.prose ol { list-style: decimal; padding-left: 1.5em; margin: 0.5em 0; }
+.prose blockquote { border-left: 3px solid #e2e8f0; padding-left: 1em; color: #64748b; }
+.prose pre { background: #f1f5f9; padding: 0.75em 1em; border-radius: 6px; font-family: monospace; white-space: pre-wrap; overflow-x: auto; }
+.prose code { background: #f1f5f9; padding: 0.1em 0.3em; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
+.prose a { color: #2563eb; text-decoration: underline; }
+.prose img { max-width: 100%; height: auto; border-radius: 4px; }
+.prose p { margin: 0.3em 0; }
+.prose strong { font-weight: bold; }
+.prose em { font-style: italic; }
+.prose s { text-decoration: line-through; }
+.prose u { text-decoration: underline; }

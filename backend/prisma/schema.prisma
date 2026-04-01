@@ -80,6 +80,7 @@ model User {
   savedFilters       SavedFilter[]
   twoFactor          TwoFactorAuth?
   projectMessages    ProjectMessage[]
+  assignmentRules    AssignmentRule[] @relation("AssignmentRuleAssignee")
 }
 
 model Project {
@@ -104,6 +105,20 @@ model Project {
   customFields       CustomField[]
   webhooks           Webhook[]
   messages           ProjectMessage[]
+  assignmentRules    AssignmentRule[]
+}
+
+model AssignmentRule {
+  id          String   @id @default(cuid())
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  priority    String?
+  type        String?
+  assigneeId  String
+  assignee    User     @relation("AssignmentRuleAssignee", fields: [assigneeId], references: [id])
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
 }
 
 model ProjectMessage {
@@ -156,6 +171,16 @@ model Ticket {
   blockedBy   TicketDependency[] @relation("BlockedTickets")
   blocks      TicketDependency[] @relation("BlockerTickets")
   customFieldValues CustomFieldValue[]
+  satisfaction TicketSatisfaction?
+}
+
+model TicketSatisfaction {
+  id        String   @id @default(cuid())
+  ticketId  String   @unique
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
 }
 
 model TicketComment {

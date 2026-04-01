@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency } from '../types';
 import {
   ArrowLeft, Clock, AlertTriangle, Send, Edit2, Save, X, Paperclip, Download, Image,
-  Timer, Link2, Plus, Trash2,
+  Timer, Link2, Plus, Trash2, Star,
 } from 'lucide-react';
+import RichTextEditor from '../components/RichTextEditor';
+import RichTextDisplay from '../components/RichTextDisplay';
 
 const priorityColors: Record<string, string> = {
   LOW: 'bg-green-100 text-green-800',
@@ -67,6 +69,7 @@ export default function TicketDetail() {
   const { id } = useParams<{ id: string }>();
   const { isAdmin, user: currentUser } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [comment, setComment] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -75,6 +78,13 @@ export default function TicketDetail() {
   const [editData, setEditData] = useState({ status: '', priority: '', assigneeId: '' });
   const [projectMembers, setProjectMembers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Satisfaction survey
+  const [showSurvey, setShowSurvey] = useState(false);
+  const [surveyRating, setSurveyRating] = useState(0);
+  const [surveyComment, setSurveyComment] = useState('');
+  const [surveySubmitted, setSurveySubmitted] = useState(false);
+  const [surveySubmitting, setSurveySubmitting] = useState(false);
 
   // Time entries
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -131,6 +141,15 @@ export default function TicketDetail() {
     fetchTimeEntries();
     fetchDependencies();
   }, [id]);
+
+  // Show survey modal if ?survey=1 in URL and ticket is resolved/closed
+  useEffect(() => {
+    if (searchParams.get('survey') === '1' && ticket) {
+      if ((ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') && !(ticket as any).satisfaction) {
+        setShowSurvey(true);
+      }
+    }
+  }, [searchParams, ticket]);
 
   useEffect(() => {
     if (ticket?.projectId) {
@@ -240,6 +259,20 @@ export default function TicketDetail() {
       await api.delete(`/dependencies/${depId}`);
       fetchDependencies();
     } catch { /* ignore */ }
+  };
+
+  const handleSurveySubmit = async () => {
+    if (!surveyRating) return;
+    setSurveySubmitting(true);
+    try {
+      await api.post(`/tickets/${id}/satisfaction`, { rating: surveyRating, comment: surveyComment || undefined });
+      setSurveySubmitted(true);
+      fetchTicket();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore');
+    } finally {
+      setSurveySubmitting(false);
+    }
   };
 
   const formatMinutes = (minutes: number) => {
@@ -360,8 +393,24 @@ export default function TicketDetail() {
         {/* Description */}
         <div className="border-t pt-4">
           <h3 className="font-medium text-gray-900 mb-2">Descrizione</h3>
-          <p className="text-gray-700 whitespace-pre-wrap">{ticket.description}</p>
+          <RichTextDisplay html={ticket.description} />
         </div>
+
+        {/* Satisfaction score display */}
+        {(ticket as any).satisfaction && (
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-medium text-gray-900 mb-2">Valutazione Cliente</h3>
+            <div className="flex items-center gap-2">
+              {[1,2,3,4,5].map(s => (
+                <Star key={s} className={`w-5 h-5 ${s <= (ticket as any).satisfaction.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
+              ))}
+              <span className="text-sm text-gray-600 ml-2">{(ticket as any).satisfaction.rating}/5</span>
+            </div>
+            {(ticket as any).satisfaction.comment && (
+              <p className="text-sm text-gray-600 mt-1 italic">"{(ticket as any).satisfaction.comment}"</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Time Tracking */}
@@ -622,6 +671,58 @@ export default function TicketDetail() {
         )}
       </div>
 
+      {/* Satisfaction Survey Modal */}
+      {showSurvey && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            {surveySubmitted ? (
+              <div className="text-center py-4">
+                <div className="text-4xl mb-3">🎉</div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Grazie per il feedback!</h3>
+                <p className="text-gray-500 text-sm mb-4">La tua valutazione è stata registrata.</p>
+                <button onClick={() => setShowSurvey(false)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">
+                  Chiudi
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-900">Come valuteresti il supporto ricevuto?</h3>
+                  <button onClick={() => setShowSurvey(false)}><X className="w-5 h-5 text-gray-400" /></button>
+                </div>
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  {[1,2,3,4,5].map(s => (
+                    <button key={s} onClick={() => setSurveyRating(s)} className="transition-transform hover:scale-110">
+                      <Star className={`w-8 h-8 ${s <= surveyRating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 hover:text-yellow-300'}`} />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-center text-sm text-gray-500 mb-4">
+                  {surveyRating === 1 ? 'Molto insoddisfatto' : surveyRating === 2 ? 'Insoddisfatto' : surveyRating === 3 ? 'Neutro' : surveyRating === 4 ? 'Soddisfatto' : surveyRating === 5 ? 'Molto soddisfatto' : 'Seleziona una valutazione'}
+                </p>
+                <textarea
+                  value={surveyComment}
+                  onChange={(e) => setSurveyComment(e.target.value)}
+                  placeholder="Commento opzionale..."
+                  className="w-full border rounded px-3 py-2 text-sm resize-none mb-4"
+                  rows={3}
+                />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setShowSurvey(false)} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Salta</button>
+                  <button
+                    onClick={handleSurveySubmit}
+                    disabled={!surveyRating || surveySubmitting}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"
+                  >
+                    {surveySubmitting ? 'Invio...' : 'Invia valutazione'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Comments */}
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="font-medium text-gray-900 mb-4">Commenti ({ticket.comments?.length || 0})</h3>
@@ -633,7 +734,7 @@ export default function TicketDetail() {
                 <span className="font-medium text-sm text-gray-900">{c.user.name}</span>
                 <span className="text-xs text-gray-400">{new Date(c.createdAt).toLocaleString('it-IT')}</span>
               </div>
-              <CommentContent content={c.content} />
+              <RichTextDisplay html={c.content} />
             </div>
           ))}
           {(!ticket.comments || ticket.comments.length === 0) && (
@@ -641,24 +742,22 @@ export default function TicketDetail() {
           )}
         </div>
 
-        <div className="space-y-1">
-          <div className="flex gap-2">
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Scrivi un commento... Usa @nome per menzionare un utente del progetto"
-              className="flex-1 border rounded px-3 py-2 text-sm resize-none"
-              rows={2}
-            />
+        <div className="space-y-2">
+          <RichTextEditor
+            value={comment}
+            onChange={setComment}
+            placeholder="Scrivi un commento... Usa @nome per menzionare un utente"
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">Usa @nome per menzionare un utente del progetto</p>
             <button
               onClick={handleComment}
-              disabled={!comment.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 self-end"
+              disabled={!comment || comment === '<p></p>'}
+              className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"
             >
-              <Send className="w-4 h-4" />
+              <Send className="w-4 h-4" /> Invia
             </button>
           </div>
-          <p className="text-xs text-gray-400">Usa @nome per menzionare un utente del progetto</p>
         </div>
       </div>
     </div>

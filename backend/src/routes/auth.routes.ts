@@ -6,6 +6,7 @@ import { env } from '../config/env';
 import { authMiddleware } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { loginSchema } from '../middleware/schemas';
+import { logAudit } from './audit.routes';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -25,6 +26,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
 
     const token = jwt.sign({ userId: user.id, role: user.role }, env.JWT_SECRET, { expiresIn: '7d' });
     const { password: _, ...userWithoutPassword } = user;
+    await logAudit(prisma, user.id, 'USER_LOGIN', 'User', user.id, `Login: ${user.email}`, req.ip || undefined);
     res.json({ token, user: userWithoutPassword });
   } catch (err) {
     res.status(500).json({ error: 'Errore server' });
