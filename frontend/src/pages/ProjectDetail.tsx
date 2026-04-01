@@ -490,6 +490,7 @@ function OverviewTab({
                     <span className="font-medium">{val}h</span>
                   </div>
                 ))}
+              </div>
             </div>
           </div>
         )}
