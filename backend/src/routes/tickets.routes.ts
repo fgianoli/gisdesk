@@ -290,9 +290,16 @@ router.post('/:id/comments', authMiddleware, validate(createCommentSchema), asyn
   }
 });
 
-// Delete ticket (admin)
-router.delete('/:id', authMiddleware, adminOnly, async (req, res) => {
+// Delete ticket (admin or ticket creator)
+router.delete('/:id', authMiddleware, async (req, res) => {
   try {
+    const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket non trovato' });
+
+    if (req.user!.role !== 'ADMIN' && ticket.creatorId !== req.user!.userId) {
+      return res.status(403).json({ error: 'Non autorizzato: puoi eliminare solo i tuoi ticket' });
+    }
+
     await prisma.ticket.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch {

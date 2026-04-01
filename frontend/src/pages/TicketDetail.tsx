@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency } from '../types';
@@ -66,6 +66,7 @@ function CommentContent({ content }: { content: string }) {
 export default function TicketDetail() {
   const { id } = useParams<{ id: string }>();
   const { isAdmin, user: currentUser } = useAuth();
+  const navigate = useNavigate();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [comment, setComment] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -189,6 +190,16 @@ export default function TicketDetail() {
     }
   };
 
+  const handleDeleteTicket = async () => {
+    if (!confirm(`Eliminare definitivamente il ticket "${ticket?.title}"? L'operazione non è reversibile.`)) return;
+    try {
+      await api.delete(`/tickets/${id}`);
+      navigate('/tickets');
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Errore durante l\'eliminazione');
+    }
+  };
+
   const handleAddTimeEntry = async () => {
     if (!timeForm.minutes || Number(timeForm.minutes) <= 0) return;
     try {
@@ -281,11 +292,21 @@ export default function TicketDetail() {
               )}
             </div>
           </div>
-          {(isAdmin || ticket.creatorId === currentUser?.id) && !editing && (
-            <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 rounded hover:bg-gray-200">
-              <Edit2 className="w-4 h-4" /> Modifica
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {(isAdmin || ticket.creatorId === currentUser?.id) && !editing && (
+              <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 rounded hover:bg-gray-200">
+                <Edit2 className="w-4 h-4" /> Modifica
+              </button>
+            )}
+            {(isAdmin || ticket.creatorId === currentUser?.id) && (
+              <button
+                onClick={handleDeleteTicket}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 border border-red-200"
+              >
+                <Trash2 className="w-4 h-4" /> Elimina
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Edit form */}
