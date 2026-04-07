@@ -16,6 +16,7 @@ import {
   ListTodo,
   CheckCircle2,
   Circle,
+  Link2,
 } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -420,7 +421,19 @@ const Dashboard: React.FC = () => {
                         <Circle className="w-5 h-5" />
                       </button>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{todo.title}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-800 truncate">{todo.title}</p>
+                          {todo.ticketId && (
+                            <button
+                              onClick={e => { e.stopPropagation(); navigate(`/tickets/${todo.ticketId}`); }}
+                              className="flex-shrink-0 text-xs text-blue-600 hover:underline flex items-center gap-1"
+                              title="Vai al ticket collegato"
+                            >
+                              <Link2 className="w-3 h-3" />
+                              {todo.ticket?.title ? `#${todo.ticket.title.slice(0, 20)}…` : 'Ticket'}
+                            </button>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500 truncate">
                           {todo.project?.name}
                           {todo.dueDate && (
