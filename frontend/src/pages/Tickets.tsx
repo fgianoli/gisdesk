@@ -670,7 +670,11 @@ export default function TicketsPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-medium text-gray-900">{t.title}</h3>
+                      {t.isUnread && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
+                      <h3 className={t.isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}>{t.title}</h3>
+                      {!t.takenChargeAt && t.status !== 'RESOLVED' && t.status !== 'CLOSED' && t.type !== 'SERVICE' && (
+                        <span className="text-xs text-gray-400">⏳ Non iniziata</span>
+                      )}
                       {t.slaStatus && t.slaStatus !== 'none' && (
                         <Clock className={`w-4 h-4 ${slaIcons[t.slaStatus]}`} />
                       )}

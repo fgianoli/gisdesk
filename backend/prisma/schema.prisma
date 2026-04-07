@@ -11,6 +11,7 @@ datasource db {
 enum UserRole {
   ADMIN
   CLIENT
+  PROJECT_ADMIN
 }
 
 enum ProjectUserRole {
@@ -81,6 +82,7 @@ model User {
   twoFactor          TwoFactorAuth?
   projectMessages    ProjectMessage[]
   assignmentRules    AssignmentRule[] @relation("AssignmentRuleAssignee")
+  ticketReads        TicketRead[]
 }
 
 model Project {
@@ -164,6 +166,7 @@ model Ticket {
   slaDeadline          DateTime?
   slaWarningNotifiedAt DateTime?
   slaExpiredNotifiedAt DateTime?
+  takenChargeAt        DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -179,6 +182,8 @@ model Ticket {
   customFieldValues CustomFieldValue[]
   satisfaction TicketSatisfaction?
   tags        TicketTag[]
+  reads       TicketRead[]
+  todos       Todo[]
 }
 
 model TicketSatisfaction {
@@ -241,6 +246,7 @@ model Todo {
   id            String         @id @default(uuid())
   projectId     String
   userId        String?
+  ticketId      String?
   title         String
   completed     Boolean        @default(false)
   dueDate       DateTime?
@@ -250,6 +256,7 @@ model Todo {
 
   project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user          User?          @relation(fields: [userId], references: [id])
+  ticket        Ticket?        @relation(fields: [ticketId], references: [id], onDelete: SetNull)
   timelineItems TimelineItem[]
 }
 
@@ -460,4 +467,13 @@ model TicketTag {
   ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
   @@id([ticketId, tagId])
+}
+
+model TicketRead {
+  ticketId  String
+  userId    String
+  readAt    DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([ticketId, userId])
 }

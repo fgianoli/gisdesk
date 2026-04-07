@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PrismaClient, TicketStatus } from '@prisma/client';
-import { authMiddleware, adminOnly } from '../middleware/auth';
+import { authMiddleware, adminOnly, adminOrProjectAdmin } from '../middleware/auth';
 import { sendEmail, ticketCreatedEmail, ticketUpdatedEmail, ticketCommentEmail } from '../services/email.service';
 import { calculateSlaDeadline, getSlaStatus } from '../services/sla.service';
 import { validate } from '../middleware/validate';
@@ -25,9 +25,11 @@ router.get('/search', authMiddleware, async (req, res) => {
       ],
     };
 
-    if (req.user!.role !== 'ADMIN') {
+    if (!['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role)) {
       where.project = { members: { some: { userId: req.user!.userId } } };
       where.type = 'STANDARD';
+    } else if (req.user!.role === 'PROJECT_ADMIN') {
+      where.project = { members: { some: { userId: req.user!.userId } } };
     }
 
     const tickets = await prisma.ticket.findMany({
@@ -61,9 +63,11 @@ router.get('/export', authMiddleware, async (req, res) => {
     if (priority) where.priority = priority;
     if (type) where.type = type;
 
-    if (req.user!.role !== 'ADMIN') {
+    if (!['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role)) {
       where.project = { members: { some: { userId: req.user!.userId } } };
       where.type = 'STANDARD';
+    } else if (req.user!.role === 'PROJECT_ADMIN') {
+      where.project = { members: { some: { userId: req.user!.userId } } };
     }
 
     const tickets = await prisma.ticket.findMany({
@@ -113,9 +117,11 @@ router.get('/', authMiddleware, async (req, res) => {
     if (tagId) where.tags = { some: { tagId } };
 
     // Clients only see STANDARD tickets from their projects
-    if (req.user!.role !== 'ADMIN') {
+    if (!['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role)) {
       where.project = { members: { some: { userId: req.user!.userId } } };
       where.type = 'STANDARD';
+    } else if (req.user!.role === 'PROJECT_ADMIN') {
+      where.project = { members: { some: { userId: req.user!.userId } } };
     }
 
     const tickets = await prisma.ticket.findMany({
@@ -130,9 +136,20 @@ router.get('/', authMiddleware, async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
+    const isAdminOrPA = ['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role);
+    let readTicketIds = new Set<string>();
+    if (isAdminOrPA && tickets.length > 0) {
+      const reads = await prisma.ticketRead.findMany({
+        where: { userId: req.user!.userId, ticketId: { in: tickets.map(t => t.id) } },
+        select: { ticketId: true },
+      });
+      readTicketIds = new Set(reads.map(r => r.ticketId));
+    }
+
     const ticketsWithSla = tickets.map((t) => ({
       ...t,
       slaStatus: getSlaStatus(t.slaDeadline),
+      isUnread: isAdminOrPA && !readTicketIds.has(t.id),
     }));
 
     res.json(ticketsWithSla);
@@ -144,7 +161,7 @@ router.get('/', authMiddleware, async (req, res) => {
 // Get single ticket
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
-    const isAdmin = req.user!.role === 'ADMIN';
+    const isAdmin = ['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role);
     const ticket = await prisma.ticket.findUnique({
       where: { id: req.params.id },
       include: {
@@ -175,8 +192,17 @@ router.get('/:id', authMiddleware, async (req, res) => {
     if (!ticket) return res.status(404).json({ error: 'Ticket non trovato' });
 
     // Clients can't see service tickets
-    if (req.user!.role !== 'ADMIN' && ticket.type === 'SERVICE') {
+    if (!isAdmin && ticket.type === 'SERVICE') {
       return res.status(403).json({ error: 'Accesso negato' });
+    }
+
+    // Mark as read for ADMIN / PROJECT_ADMIN
+    if (['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role)) {
+      await prisma.ticketRead.upsert({
+        where: { ticketId_userId: { ticketId: req.params.id, userId: req.user!.userId } },
+        update: { readAt: new Date() },
+        create: { ticketId: req.params.id, userId: req.user!.userId },
+      });
     }
 
     res.json({ ...ticketWithSatisfaction, slaStatus: getSlaStatus(ticket.slaDeadline) });
@@ -190,16 +216,15 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
   try {
     const { projectId, title, description, priority, type, assigneeId } = req.body;
 
-    // Only admins can create SERVICE tickets
-    if (type === 'SERVICE' && req.user!.role !== 'ADMIN') {
+    // Only admins/project_admins can create SERVICE tickets
+    if (type === 'SERVICE' && !['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role)) {
       return res.status(403).json({ error: 'Solo gli admin possono creare ticket di servizio' });
     }
 
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ error: 'Progetto non trovato' });
 
-    const slaDeadline = type !== 'SERVICE' ? calculateSlaDeadline(project, priority || 'MEDIUM') : null;
-
+    // SLA deadline is now set when ticket is taken in charge (IN_PROGRESS), not at creation
     let ticket = await prisma.ticket.create({
       data: {
         projectId,
@@ -209,7 +234,8 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
         description,
         priority: priority || 'MEDIUM',
         type: type || 'STANDARD',
-        slaDeadline,
+        slaDeadline: null,
+        takenChargeAt: null,
       },
       include: {
         project: { select: { id: true, name: true } },
@@ -280,11 +306,11 @@ router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const ticket = await prisma.ticket.findUnique({
       where: { id: req.params.id },
-      include: { project: { select: { name: true, slaHours: true } } },
+      include: { project: { select: { id: true, name: true, slaHours: true, slaCriticalHours: true, slaHighHours: true, slaMediumHours: true, slaLowHours: true } } },
     });
     if (!ticket) return res.status(404).json({ error: 'Ticket non trovato' });
 
-    // Only admins can update priority
+    // Only admins/project_admins can update priority
     const { title, description, status, priority, assigneeId } = req.body;
     const data: any = {};
     const historyEntries: { field: string; oldValue: string; newValue: string }[] = [];
@@ -298,12 +324,19 @@ router.put('/:id', authMiddleware, async (req, res) => {
       historyEntries.push({ field: 'description', oldValue: ticket.description, newValue: description });
     }
     if (status !== undefined && status !== ticket.status) {
-      // Only admins can change priority, but status can be changed by project members too
       data.status = status;
       historyEntries.push({ field: 'status', oldValue: ticket.status, newValue: status });
+
+      // SLA starts when ticket is first set to IN_PROGRESS (presa in carico)
+      if (status === 'IN_PROGRESS' && !ticket.takenChargeAt) {
+        data.takenChargeAt = new Date();
+        if (ticket.project && ticket.type !== 'SERVICE') {
+          data.slaDeadline = calculateSlaDeadline(ticket.project, ticket.priority);
+        }
+      }
     }
     if (priority !== undefined && priority !== ticket.priority) {
-      if (req.user!.role !== 'ADMIN') {
+      if (!['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role)) {
         return res.status(403).json({ error: 'Solo gli admin possono modificare la priorità' });
       }
       data.priority = priority;

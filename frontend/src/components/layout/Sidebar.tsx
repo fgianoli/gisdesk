@@ -12,7 +12,7 @@ import NotificationBell from '../NotificationBell';
 import { LanguageSelector } from '../LanguageSelector';
 
 export default function Sidebar() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isProjectAdmin } = useAuth();
   const { dark, toggleDark } = useTheme();
   const { settings, logoUrl } = useAppSettings();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -204,6 +204,28 @@ export default function Sidebar() {
             </NavLink>
           </>
         )}
+        {isProjectAdmin && (
+          <>
+            <p
+              className="px-3 mt-4 mb-1 text-[10px] font-semibold uppercase tracking-widest"
+              style={{ color: 'var(--text-sidebar)', opacity: 0.5 }}
+            >
+              Admin Progetto
+            </p>
+            <NavLink to="/service-tickets" onClick={close}
+              className={linkClass}
+              style={({ isActive }) => linkStyle(isActive)}
+            >
+              <Wrench className="w-4 h-4 flex-shrink-0" /> Ticket Servizio
+            </NavLink>
+            <NavLink to="/templates" onClick={close}
+              className={linkClass}
+              style={({ isActive }) => linkStyle(isActive)}
+            >
+              <LayoutTemplate className="w-4 h-4 flex-shrink-0" /> Template
+            </NavLink>
+          </>
+        )}
       </nav>
 
       {/* Footer user */}
@@ -220,7 +242,7 @@ export default function Sidebar() {
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-white truncate">{user?.name}</div>
             <div className="text-xs truncate" style={{ color: 'var(--text-sidebar)' }}>
-              {user?.role === 'ADMIN' ? 'Amministratore' : 'Cliente'}
+              {user?.role === 'ADMIN' ? 'Amministratore' : user?.role === 'PROJECT_ADMIN' ? 'Admin Progetto' : 'Cliente'}
             </div>
           </div>
           <NotificationBell />

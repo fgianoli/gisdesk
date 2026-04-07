@@ -1,0 +1,1 @@
+ALTER TABLE "Ticket" ADD COLUMN "takenChargeAt" TIMESTAMP(3);

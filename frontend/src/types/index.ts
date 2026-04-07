@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'CLIENT';
+  role: 'ADMIN' | 'CLIENT' | 'PROJECT_ADMIN';
   active: boolean;
   createdAt: string;
   phone?: string | null;
@@ -78,6 +78,8 @@ export interface Ticket {
   type: 'STANDARD' | 'SERVICE';
   slaDeadline: string | null;
   slaStatus: 'green' | 'yellow' | 'red' | 'none';
+  takenChargeAt?: string | null;
+  isUnread?: boolean;
   createdAt: string;
   updatedAt: string;
   project?: Pick<Project, 'id' | 'name'>;
@@ -145,12 +147,15 @@ export interface Todo {
   id: string;
   projectId: string;
   userId: string | null;
+  ticketId?: string | null;
   title: string;
   completed: boolean;
   dueDate: string | null;
   recurrence: string;
   createdAt: string;
   user?: Pick<User, 'id' | 'name'> | null;
+  ticket?: Pick<Ticket, 'id' | 'title'> | null;
+  project?: Pick<Project, 'id' | 'name'>;
 }
 
 export interface ProjectFaq {

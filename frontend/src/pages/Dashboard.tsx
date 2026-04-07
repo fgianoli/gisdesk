@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import RichTextEditor from '../components/RichTextEditor';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   FolderKanban,
@@ -13,10 +13,13 @@ import {
   UserCheck,
   Plus,
   Paperclip,
+  ListTodo,
+  CheckCircle2,
+  Circle,
 } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import type { Project, Ticket as TicketType, TicketTemplate } from '../types';
+import type { Project, Ticket as TicketType, TicketTemplate, Todo } from '../types';
 
 interface DashboardStats {
   totalProjects: number;
@@ -61,15 +64,15 @@ const formatLabel = (value: string): string =>
   value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAdmin, isAdminOrProjectAdmin } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const isAdmin = user?.role === 'ADMIN';
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [tickets, setTickets] = useState<TicketType[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
+  const [todos, setTodos] = useState<Todo[]>([]);
 
   // Create ticket modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -89,6 +92,13 @@ const Dashboard: React.FC = () => {
         ]);
         setProjects(projectsRes.data);
         setTickets(ticketsRes.data);
+        // Fetch todos for admin/project_admin
+        if (isAdminOrProjectAdmin) {
+          try {
+            const todosRes = await api.get<Todo[]>('/todos');
+            setTodos(todosRes.data);
+          } catch { /* ignore */ }
+        }
       } catch (err: unknown) {
         if (err instanceof Error) {
           setError(err.message);
@@ -101,7 +111,7 @@ const Dashboard: React.FC = () => {
     };
 
     fetchData();
-  }, []);
+  }, [isAdminOrProjectAdmin]);
 
   const stats: DashboardStats = {
     totalProjects: projects.length,
@@ -300,8 +310,11 @@ const Dashboard: React.FC = () => {
                     className="hover:bg-indigo-50 transition cursor-pointer"
                     onClick={() => navigate(`/tickets/${ticket.id}`)}
                   >
-                    <td className="px-6 py-4 font-medium text-gray-900 max-w-xs truncate">
-                      {ticket.title}
+                    <td className="px-6 py-4 max-w-xs truncate">
+                      <div className="flex items-center gap-1.5">
+                        {ticket.isUnread && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
+                        <span className={ticket.isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}>{ticket.title}</span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
                       {ticket.project?.name ?? '—'}
@@ -368,6 +381,65 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
+      {/* I miei TODO (ADMIN / PROJECT_ADMIN) */}
+      {isAdminOrProjectAdmin && (() => {
+        const myTodos = todos.filter(todo => !todo.completed).slice(0, 5);
+        const toggleTodo = async (todo: Todo) => {
+          try {
+            await api.put(`/todos/${todo.id}`, { completed: true });
+            setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, completed: true } : t));
+          } catch { /* ignore */ }
+        };
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ListTodo className="h-5 w-5 text-teal-500" />
+                <h2 className="text-lg font-semibold text-gray-900">I miei TODO</h2>
+                {myTodos.length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 text-xs font-semibold">
+                    {todos.filter(t => !t.completed).length}
+                  </span>
+                )}
+              </div>
+              <Link to="/projects" className="text-xs text-blue-600 hover:underline">Vedi tutti →</Link>
+            </div>
+            {myTodos.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-gray-400">Nessun TODO in sospeso</div>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {myTodos.map(todo => {
+                  const isOverdue = todo.dueDate && new Date(todo.dueDate) < new Date();
+                  return (
+                    <li key={todo.id} className="flex items-center gap-3 px-6 py-3 hover:bg-gray-50">
+                      <button
+                        onClick={() => toggleTodo(todo)}
+                        className="text-gray-400 hover:text-teal-600 flex-shrink-0"
+                        title="Segna come completato"
+                      >
+                        <Circle className="w-5 h-5" />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{todo.title}</p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {todo.project?.name}
+                          {todo.dueDate && (
+                            <span className={isOverdue ? ' text-red-500 font-semibold' : ''}>
+                              {' · '}{isOverdue ? 'Scaduto: ' : 'Scadenza: '}
+                              {new Date(todo.dueDate).toLocaleDateString('it-IT')}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Recent Tickets */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
@@ -397,8 +469,11 @@ const Dashboard: React.FC = () => {
                     className="hover:bg-gray-50 transition cursor-pointer"
                     onClick={() => navigate(`/tickets/${ticket.id}`)}
                   >
-                    <td className="px-6 py-4 font-medium text-gray-900 max-w-xs truncate">
-                      {ticket.title}
+                    <td className="px-6 py-4 max-w-xs truncate">
+                      <div className="flex items-center gap-1.5">
+                        {ticket.isUnread && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
+                        <span className={ticket.isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}>{ticket.title}</span>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-800'}`}>

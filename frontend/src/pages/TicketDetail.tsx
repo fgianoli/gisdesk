@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency, CannedResponse, Tag } from '../types';
+import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency, CannedResponse, Tag, Todo } from '../types';
 import {
   ArrowLeft, Clock, AlertTriangle, Send, Edit2, Save, X, Paperclip, Download, Image,
-  Timer, Link2, Plus, Trash2, Star, Lock, MessageSquare, Merge, Tag as TagIcon,
+  Timer, Link2, Plus, Trash2, Star, Lock, MessageSquare, Merge, Tag as TagIcon, ListTodo, Circle, CheckCircle2,
 } from 'lucide-react';
 import RichTextEditor from '../components/RichTextEditor';
 import RichTextDisplay from '../components/RichTextDisplay';
@@ -65,9 +65,51 @@ function CommentContent({ content }: { content: string }) {
   );
 }
 
+// SLA Countdown component
+function SlaCountdown({ takenChargeAt, slaDeadline }: { takenChargeAt: string; slaDeadline: string }) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const deadline = new Date(slaDeadline);
+  const taken = new Date(takenChargeAt);
+  const totalMs = deadline.getTime() - taken.getTime();
+  const remainingMs = deadline.getTime() - now.getTime();
+  const pct = totalMs > 0 ? (remainingMs / totalMs) * 100 : 0;
+
+  const color = pct > 25 ? 'text-green-600' : pct > 10 ? 'text-yellow-600' : 'text-red-600';
+
+  const formatRemaining = (ms: number) => {
+    if (ms <= 0) return 'SCADUTA';
+    const s = Math.floor(ms / 1000) % 60;
+    const m = Math.floor(ms / 60000) % 60;
+    const h = Math.floor(ms / 3600000) % 24;
+    const d = Math.floor(ms / 86400000);
+    if (d > 0) return `${d}g ${h}h ${m}m ${s}s`;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
+  };
+
+  return (
+    <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+      <div className={`text-lg font-bold ${remainingMs <= 0 ? 'text-red-600' : color}`}>
+        {remainingMs <= 0 ? '🚨 SLA SCADUTA' : `⏱ ${formatRemaining(remainingMs)}`}
+      </div>
+      <div className="text-xs text-gray-500 mt-1">
+        Presa in carico: {new Date(takenChargeAt).toLocaleString('it-IT')}
+      </div>
+      <div className="text-xs text-gray-500">
+        Scadenza SLA: {deadline.toLocaleString('it-IT')}
+      </div>
+    </div>
+  );
+}
+
 export default function TicketDetail() {
   const { id } = useParams<{ id: string }>();
-  const { isAdmin, user: currentUser } = useAuth();
+  const { isAdmin, isAdminOrProjectAdmin, user: currentUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [ticket, setTicket] = useState<Ticket | null>(null);
@@ -79,6 +121,12 @@ export default function TicketDetail() {
   const [editData, setEditData] = useState({ status: '', priority: '', assigneeId: '' });
   const [projectMembers, setProjectMembers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Linked TODOs
+  const [linkedTodos, setLinkedTodos] = useState<Todo[]>([]);
+  const [showAddTodo, setShowAddTodo] = useState(false);
+  const [todoForm, setTodoForm] = useState({ title: '', dueDate: '', userId: '' });
+  const [addingTodo, setAddingTodo] = useState(false);
 
   // Satisfaction survey
   const [showSurvey, setShowSurvey] = useState(false);
@@ -128,6 +176,13 @@ export default function TicketDetail() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchLinkedTodos = async (projectId: string) => {
+    try {
+      const res = await api.get(`/todos/project/${projectId}`);
+      setLinkedTodos(res.data.filter((t: Todo) => t.ticketId === id));
+    } catch { /* ignore */ }
   };
 
   const fetchTimeEntries = async () => {
@@ -180,6 +235,10 @@ export default function TicketDetail() {
     fetchTags();
     if (isAdmin) fetchAllTickets();
   }, [id]);
+
+  useEffect(() => {
+    if (ticket?.projectId) fetchLinkedTodos(ticket.projectId);
+  }, [ticket?.projectId, id]);
 
   // Show survey modal if ?survey=1 in URL and ticket is resolved/closed
   useEffect(() => {
@@ -391,14 +450,15 @@ export default function TicketDetail() {
               {ticket.type === 'SERVICE' && (
                 <span className="px-2 py-1 rounded text-xs font-medium bg-gray-700 text-white">Servizio</span>
               )}
-              {ticket.slaDeadline && (
-                <span className={`flex items-center gap-1 text-xs ${slaColors[ticket.slaStatus]}`}>
-                  <Clock className="w-3 h-3" />
-                  SLA: {new Date(ticket.slaDeadline).toLocaleString('it-IT')}
-                  {ticket.slaStatus === 'red' && <AlertTriangle className="w-3 h-3" />}
+              {!ticket.takenChargeAt && ticket.type !== 'SERVICE' && (
+                <span className="flex items-center gap-1 text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                  ⏳ In attesa di presa in carico
                 </span>
               )}
             </div>
+            {ticket.takenChargeAt && ticket.slaDeadline && (
+              <SlaCountdown takenChargeAt={ticket.takenChargeAt} slaDeadline={ticket.slaDeadline} />
+            )}
 
             {/* Tags */}
             <div className="flex items-center gap-1 flex-wrap mt-2">
@@ -885,6 +945,118 @@ export default function TicketDetail() {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* TODO collegati */}
+      {isAdminOrProjectAdmin && (
+        <div className="bg-white rounded-lg shadow p-6 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium text-gray-900 flex items-center gap-2">
+              <ListTodo className="w-4 h-4" />
+              TODO collegati ({linkedTodos.length})
+            </h3>
+            <button
+              onClick={() => setShowAddTodo(v => !v)}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 rounded hover:bg-gray-200"
+            >
+              <Plus className="w-4 h-4" /> Aggiungi TODO
+            </button>
+          </div>
+
+          {showAddTodo && (
+            <div className="bg-gray-50 rounded p-3 mb-3 space-y-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Titolo *</label>
+                <input
+                  value={todoForm.title}
+                  onChange={e => setTodoForm({ ...todoForm, title: e.target.value })}
+                  className="w-full border rounded px-3 py-1.5 text-sm"
+                  placeholder="Titolo del TODO..."
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Scadenza</label>
+                  <input
+                    type="date"
+                    value={todoForm.dueDate}
+                    onChange={e => setTodoForm({ ...todoForm, dueDate: e.target.value })}
+                    className="w-full border rounded px-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Assegna a</label>
+                  <select
+                    value={todoForm.userId}
+                    onChange={e => setTodoForm({ ...todoForm, userId: e.target.value })}
+                    className="w-full border rounded px-3 py-1.5 text-sm"
+                  >
+                    <option value="">Nessuno</option>
+                    {projectMembers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    if (!todoForm.title || !ticket) return;
+                    setAddingTodo(true);
+                    try {
+                      await api.post('/todos', {
+                        projectId: ticket.projectId,
+                        ticketId: id,
+                        title: todoForm.title,
+                        dueDate: todoForm.dueDate || null,
+                        userId: todoForm.userId || null,
+                      });
+                      setTodoForm({ title: '', dueDate: '', userId: '' });
+                      setShowAddTodo(false);
+                      fetchLinkedTodos(ticket.projectId);
+                    } catch { /* ignore */ }
+                    setAddingTodo(false);
+                  }}
+                  disabled={!todoForm.title || addingTodo}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {addingTodo ? 'Aggiunta...' : 'Aggiungi'}
+                </button>
+                <button onClick={() => setShowAddTodo(false)} className="px-3 py-1.5 bg-gray-200 rounded text-sm hover:bg-gray-300">
+                  Annulla
+                </button>
+              </div>
+            </div>
+          )}
+
+          {linkedTodos.length === 0 ? (
+            <p className="text-sm text-gray-400">Nessun TODO collegato.</p>
+          ) : (
+            <div className="space-y-2">
+              {linkedTodos.map(todo => (
+                <div key={todo.id} className="flex items-center gap-3 bg-gray-50 rounded p-2">
+                  <button
+                    onClick={async () => {
+                      if (!ticket) return;
+                      await api.put(`/todos/${todo.id}`, { completed: !todo.completed });
+                      fetchLinkedTodos(ticket.projectId);
+                    }}
+                    className={todo.completed ? 'text-green-500' : 'text-gray-400 hover:text-blue-600'}
+                  >
+                    {todo.completed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm ${todo.completed ? 'line-through text-gray-400' : 'font-medium text-gray-800'}`}>{todo.title}</p>
+                    {(todo.user || todo.dueDate) && (
+                      <p className="text-xs text-gray-500">
+                        {todo.user?.name}
+                        {todo.dueDate && ` · ${new Date(todo.dueDate).toLocaleDateString('it-IT')}`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

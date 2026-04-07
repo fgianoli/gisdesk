@@ -7,7 +7,7 @@ interface UserForm {
   name: string;
   email: string;
   password: string;
-  role: 'ADMIN' | 'CLIENT';
+  role: 'ADMIN' | 'CLIENT' | 'PROJECT_ADMIN';
 }
 
 const emptyForm: UserForm = { name: '', email: '', password: '', role: 'CLIENT' };
@@ -46,7 +46,7 @@ export default function Users() {
 
   const openEdit = (user: User) => {
     setEditingUser(user);
-    setForm({ name: user.name, email: user.email, password: '', role: user.role });
+    setForm({ name: user.name, email: user.email, password: '', role: user.role as 'ADMIN' | 'CLIENT' | 'PROJECT_ADMIN' });
     setError('');
     setShowModal(true);
   };
@@ -158,10 +158,12 @@ export default function Users() {
                       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                         user.role === 'ADMIN'
                           ? 'bg-purple-100 text-purple-800'
+                          : user.role === 'PROJECT_ADMIN'
+                          ? 'bg-indigo-100 text-indigo-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}
                     >
-                      {user.role === 'ADMIN' ? 'Admin' : 'Cliente'}
+                      {user.role === 'ADMIN' ? 'Admin' : user.role === 'PROJECT_ADMIN' ? 'Admin Progetto' : 'Cliente'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -256,10 +258,11 @@ export default function Users() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Ruolo</label>
                 <select
                   value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value as 'ADMIN' | 'CLIENT' })}
+                  onChange={(e) => setForm({ ...form, role: e.target.value as 'ADMIN' | 'CLIENT' | 'PROJECT_ADMIN' })}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="CLIENT">Cliente</option>
+                  <option value="PROJECT_ADMIN">Admin Progetto</option>
                   <option value="ADMIN">Admin</option>
                 </select>
               </div>

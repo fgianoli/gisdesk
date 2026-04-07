@@ -696,7 +696,12 @@ function TicketsTab({
                   className="hover:bg-gray-50 cursor-pointer"
                   onClick={() => navigate(`/tickets/${t.id}`)}
                 >
-                  <td className="px-4 py-3 font-medium">{t.title}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1.5">
+                      {t.isUnread && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
+                      <span className={t.isUnread ? 'font-bold' : 'font-medium'}>{t.title}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityColors[t.priority]}`}
@@ -712,10 +717,13 @@ function TicketsTab({
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <Clock
-                      size={16}
-                      className={slaIndicator[t.slaStatus]}
-                    />
+                    {!t.takenChargeAt && t.type !== 'SERVICE' ? (
+                      <span className="text-xs text-gray-400">⏳ Non iniziata</span>
+                    ) : t.slaStatus === 'red' ? (
+                      <span className="text-xs text-red-500">🚨 SCADUTA</span>
+                    ) : (
+                      <Clock size={16} className={slaIndicator[t.slaStatus]} />
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {t.creator?.name ?? '—'}
@@ -1257,12 +1265,14 @@ function TodoTab({
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
+  const [projectTickets, setProjectTickets] = useState<Ticket[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     title: '',
     userId: '',
     dueDate: '',
     recurrence: 'NONE',
+    ticketId: '',
   });
 
   const fetchTodos = useCallback(async () => {
@@ -1278,7 +1288,8 @@ function TodoTab({
     if (isAdmin) {
       api.get('/users').then((r) => setUsers(r.data)).catch(() => {});
     }
-  }, [fetchTodos, isAdmin]);
+    api.get('/tickets', { params: { projectId } }).then((r) => setProjectTickets(r.data)).catch(() => {});
+  }, [fetchTodos, isAdmin, projectId]);
 
   const toggleTodo = async (todo: Todo) => {
     try {
@@ -1295,8 +1306,9 @@ function TodoTab({
         userId: form.userId || null,
         dueDate: form.dueDate || null,
         recurrence: form.recurrence || 'NONE',
+        ticketId: form.ticketId || null,
       });
-      setForm({ title: '', userId: '', dueDate: '', recurrence: 'NONE' });
+      setForm({ title: '', userId: '', dueDate: '', recurrence: 'NONE', ticketId: '' });
       setShowForm(false);
       fetchTodos();
     } catch {}
@@ -1479,6 +1491,23 @@ function TodoTab({
                   <option value="MONTHLY">Ogni mese</option>
                 </select>
               </div>
+              {projectTickets.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Collega a ticket (opzionale)
+                  </label>
+                  <select
+                    className="w-full border rounded px-3 py-2 text-sm"
+                    value={form.ticketId}
+                    onChange={(e) => setForm({ ...form, ticketId: e.target.value })}
+                  >
+                    <option value="">Nessun ticket</option>
+                    {projectTickets.filter(t => t.status !== 'CLOSED' && t.status !== 'RESOLVED').map(t => (
+                      <option key={t.id} value={t.id}>{t.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button

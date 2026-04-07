@@ -37,3 +37,10 @@ export function adminOnly(req: Request, res: Response, next: NextFunction) {
   }
   next();
 }
+
+export const adminOrProjectAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (req.user!.role !== 'ADMIN' && req.user!.role !== 'PROJECT_ADMIN') {
+    return res.status(403).json({ error: 'Accesso riservato agli amministratori' });
+  }
+  next();
+};
