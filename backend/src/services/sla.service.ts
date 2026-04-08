@@ -3,15 +3,23 @@ import { sendEmail, slaWarningEmail, slaExpiredEmail, weeklyReportEmail } from '
 
 const prisma = new PrismaClient();
 
+type ProjectSlaConfig = {
+  slaHours: number;
+  slaCriticalHours?: number | null;
+  slaHighHours?: number | null;
+  slaMediumHours?: number | null;
+  slaLowHours?: number | null;
+  slaResponseCriticalHours?: number | null;
+  slaResponseHighHours?: number | null;
+  slaResponseMediumHours?: number | null;
+  slaResponseLowHours?: number | null;
+};
+
+/** Resolution SLA deadline — from createdAt to ticket CLOSED/RESOLVED */
 export function calculateSlaDeadline(
-  project: {
-    slaHours: number;
-    slaCriticalHours?: number | null;
-    slaHighHours?: number | null;
-    slaMediumHours?: number | null;
-    slaLowHours?: number | null;
-  },
+  project: ProjectSlaConfig,
   priority?: string,
+  from?: Date,
 ): Date | null {
   if (priority === 'FEATURE_REQUEST') return null;
   let hours: number;
@@ -22,7 +30,28 @@ export function calculateSlaDeadline(
     case 'LOW':      hours = project.slaLowHours ?? project.slaHours; break;
     default:         hours = project.slaHours;
   }
-  const deadline = new Date();
+  const deadline = from ? new Date(from) : new Date();
+  deadline.setHours(deadline.getHours() + hours);
+  return deadline;
+}
+
+/** Response SLA deadline — from createdAt to first IN_PROGRESS (presa in carico) */
+export function calculateSlaResponseDeadline(
+  project: ProjectSlaConfig,
+  priority?: string,
+  from?: Date,
+): Date | null {
+  if (priority === 'FEATURE_REQUEST') return null;
+  // If no response SLA configured for this priority, return null (not tracked)
+  let hours: number | null = null;
+  switch (priority) {
+    case 'CRITICAL': hours = project.slaResponseCriticalHours ?? null; break;
+    case 'HIGH':     hours = project.slaResponseHighHours ?? null; break;
+    case 'MEDIUM':   hours = project.slaResponseMediumHours ?? null; break;
+    case 'LOW':      hours = project.slaResponseLowHours ?? null; break;
+  }
+  if (hours === null) return null;
+  const deadline = from ? new Date(from) : new Date();
   deadline.setHours(deadline.getHours() + hours);
   return deadline;
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { PrismaClient, TicketStatus } from '@prisma/client';
 import { authMiddleware, adminOnly, adminOrProjectAdmin } from '../middleware/auth';
 import { sendEmail, ticketCreatedEmail, ticketUpdatedEmail, ticketCommentEmail } from '../services/email.service';
-import { calculateSlaDeadline, getSlaStatus } from '../services/sla.service';
+import { calculateSlaDeadline, calculateSlaResponseDeadline, getSlaStatus } from '../services/sla.service';
 import { validate } from '../middleware/validate';
 import { createTicketSchema, createCommentSchema } from '../middleware/schemas';
 import { createNotification } from './notifications.routes';
@@ -224,7 +224,17 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ error: 'Progetto non trovato' });
 
-    // SLA deadline is now set when ticket is taken in charge (IN_PROGRESS), not at creation
+    // Calculate both SLA deadlines from creation time
+    const ticketPriority = (priority || 'MEDIUM') as string;
+    const ticketType = (type || 'STANDARD') as string;
+    const createdAt = new Date();
+    const slaDeadline = ticketType !== 'SERVICE'
+      ? calculateSlaDeadline(project, ticketPriority, createdAt)
+      : null;
+    const slaResponseDeadline = ticketType !== 'SERVICE'
+      ? calculateSlaResponseDeadline(project, ticketPriority, createdAt)
+      : null;
+
     let ticket = await prisma.ticket.create({
       data: {
         projectId,
@@ -232,9 +242,10 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
         assigneeId: assigneeId || null,
         title,
         description,
-        priority: priority || 'MEDIUM',
-        type: type || 'STANDARD',
-        slaDeadline: null,
+        priority: ticketPriority as any,
+        type: ticketType as any,
+        slaDeadline,
+        slaResponseDeadline,
         takenChargeAt: null,
       },
       include: {
@@ -327,12 +338,11 @@ router.put('/:id', authMiddleware, async (req, res) => {
       data.status = status;
       historyEntries.push({ field: 'status', oldValue: ticket.status, newValue: status });
 
-      // SLA starts when ticket is first set to IN_PROGRESS (presa in carico)
+      // Record first "presa in carico" timestamp (response SLA met when this is set)
       if (status === 'IN_PROGRESS' && !ticket.takenChargeAt) {
         data.takenChargeAt = new Date();
-        if (ticket.project && ticket.type !== 'SERVICE') {
-          data.slaDeadline = calculateSlaDeadline(ticket.project, ticket.priority);
-        }
+        // slaDeadline (resolution) was already set at creation — do not overwrite
+        // slaResponseDeadline is already set at creation — takenChargeAt marks when response SLA was met
       }
     }
     if (priority !== undefined && priority !== ticket.priority) {

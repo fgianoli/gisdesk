@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, adminOnly } from '../middleware/auth';
 import multer from 'multer';
-import { calculateSlaDeadline } from '../services/sla.service';
+import { calculateSlaDeadline, calculateSlaResponseDeadline } from '../services/sla.service';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -34,7 +34,9 @@ router.post('/tickets', authMiddleware, adminOnly, upload.single('file'), async 
         if (!project) { errors.push(`Riga ${i + 1}: progetto ${projectid} non trovato`); continue; }
 
         const ticketPriority = (['LOW','MEDIUM','HIGH','CRITICAL','FEATURE_REQUEST'].includes((priority||'').toUpperCase()) ? priority.toUpperCase() : 'MEDIUM');
-        const slaDeadline = calculateSlaDeadline(project, ticketPriority);
+        const createdAt = new Date();
+        const slaDeadline = calculateSlaDeadline(project, ticketPriority, createdAt);
+        const slaResponseDeadline = calculateSlaResponseDeadline(project, ticketPriority, createdAt);
         const ticket = await prisma.ticket.create({
           data: {
             projectId: projectid,
@@ -45,6 +47,7 @@ router.post('/tickets', authMiddleware, adminOnly, upload.single('file'), async 
             status: (['OPEN','IN_PROGRESS','WAITING','RESOLVED','CLOSED'].includes((status||'').toUpperCase()) ? status.toUpperCase() : 'OPEN') as any,
             type: (type?.toUpperCase() === 'SERVICE' ? 'SERVICE' : 'STANDARD') as any,
             slaDeadline,
+            slaResponseDeadline,
           },
         });
         imported.push(ticket);

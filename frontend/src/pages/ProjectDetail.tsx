@@ -260,6 +260,10 @@ function OverviewTab({
     slaHighHours: (project as any).slaHighHours ?? 48,
     slaMediumHours: (project as any).slaMediumHours ?? 120,
     slaLowHours: (project as any).slaLowHours ?? 336,
+    slaResponseCriticalHours: (project as any).slaResponseCriticalHours ?? '',
+    slaResponseHighHours: (project as any).slaResponseHighHours ?? '',
+    slaResponseMediumHours: (project as any).slaResponseMediumHours ?? '',
+    slaResponseLowHours: (project as any).slaResponseLowHours ?? '',
   });
   const [members, setMembers] = useState<ProjectMember[]>(
     project.members ?? []
@@ -295,6 +299,10 @@ function OverviewTab({
         slaHighHours: Number(form.slaHighHours) || null,
         slaMediumHours: Number(form.slaMediumHours) || null,
         slaLowHours: Number(form.slaLowHours) || null,
+        slaResponseCriticalHours: form.slaResponseCriticalHours !== '' ? Number(form.slaResponseCriticalHours) || null : null,
+        slaResponseHighHours: form.slaResponseHighHours !== '' ? Number(form.slaResponseHighHours) || null : null,
+        slaResponseMediumHours: form.slaResponseMediumHours !== '' ? Number(form.slaResponseMediumHours) || null : null,
+        slaResponseLowHours: form.slaResponseLowHours !== '' ? Number(form.slaResponseLowHours) || null : null,
       });
       setEditing(false);
       onUpdate();
@@ -408,37 +416,55 @@ function OverviewTab({
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <Clock size={14} /> Configurazione SLA per Priorità
               </h3>
+              {/* Header columns */}
+              <div className="flex items-center gap-3 mb-2 pb-1 border-b border-gray-200">
+                <div className="w-32" />
+                <div className="text-xs font-semibold text-gray-500 flex-1">Descrizione</div>
+                <div className="text-xs font-semibold text-blue-600 w-28 text-center">⚡ Risposta (ore)</div>
+                <div className="text-xs font-semibold text-teal-600 w-28 text-center">🏁 Risoluzione (ore)</div>
+              </div>
               <div className="space-y-2">
                 {[
-                  { key: 'slaCriticalHours', label: 'Critica (Cat. 1)', color: 'bg-red-100 text-red-700', desc: 'Grave indisponibilità' },
-                  { key: 'slaHighHours',     label: 'Alta (Cat. 2)',    color: 'bg-orange-100 text-orange-700', desc: 'Parziale interruzione' },
-                  { key: 'slaMediumHours',   label: 'Media (Cat. 3)',   color: 'bg-yellow-100 text-yellow-700', desc: 'Servizio degradato' },
-                  { key: 'slaLowHours',      label: 'Bassa (Cat. 4)',   color: 'bg-green-100 text-green-700', desc: 'Pianificabile' },
-                ].map(({ key, label, color, desc }) => (
-                  <div key={key} className="flex items-center gap-3">
+                  { resKey: 'slaResponseCriticalHours', resolKey: 'slaCriticalHours', label: '🔴 Critica', color: 'bg-red-100 text-red-700', desc: 'Grave indisponibilità' },
+                  { resKey: 'slaResponseHighHours',     resolKey: 'slaHighHours',     label: '🟠 Alta',    color: 'bg-orange-100 text-orange-700', desc: 'Parziale interruzione' },
+                  { resKey: 'slaResponseMediumHours',   resolKey: 'slaMediumHours',   label: '🟡 Media',   color: 'bg-yellow-100 text-yellow-700', desc: 'Servizio degradato' },
+                  { resKey: 'slaResponseLowHours',      resolKey: 'slaLowHours',      label: '🟢 Bassa',   color: 'bg-green-100 text-green-700', desc: 'Pianificabile' },
+                ].map(({ resKey, resolKey, label, color, desc }) => (
+                  <div key={resolKey} className="flex items-center gap-3">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded w-32 text-center ${color}`}>{label}</span>
                     <span className="text-xs text-gray-500 flex-1">{desc}</span>
-                    <div className="flex items-center gap-1">
+                    {/* Response SLA */}
+                    <div className="flex items-center gap-1 w-28 justify-center">
+                      <input type="number" min={1} placeholder="—"
+                        className="w-16 border rounded px-2 py-1 text-sm text-center"
+                        value={(form as any)[resKey] ?? ''}
+                        onChange={(e) => setForm({ ...form, [resKey]: e.target.value })} />
+                      <span className="text-xs text-gray-400">h</span>
+                    </div>
+                    {/* Resolution SLA */}
+                    <div className="flex items-center gap-1 w-28 justify-center">
                       <input type="number" min={1}
-                        className="w-20 border rounded px-2 py-1 text-sm text-center"
-                        value={(form as any)[key]}
-                        onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />
-                      <span className="text-xs text-gray-500">ore</span>
+                        className="w-16 border rounded px-2 py-1 text-sm text-center"
+                        value={(form as any)[resolKey]}
+                        onChange={(e) => setForm({ ...form, [resolKey]: Number(e.target.value) })} />
+                      <span className="text-xs text-gray-400">h</span>
                     </div>
                   </div>
                 ))}
                 <div className="flex items-center gap-3 pt-1 border-t border-gray-200 mt-1">
                   <span className="text-xs font-medium px-2 py-0.5 rounded w-32 text-center bg-gray-200 text-gray-600">Default</span>
-                  <span className="text-xs text-gray-500 flex-1">Fallback se non specificato</span>
-                  <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-500 flex-1">Fallback risoluzione se non specificato</span>
+                  <div className="w-28" />
+                  <div className="flex items-center gap-1 w-28 justify-center">
                     <input type="number" min={1}
-                      className="w-20 border rounded px-2 py-1 text-sm text-center"
+                      className="w-16 border rounded px-2 py-1 text-sm text-center"
                       value={form.slaHours}
                       onChange={(e) => setForm({ ...form, slaHours: Number(e.target.value) })} />
-                    <span className="text-xs text-gray-500">ore</span>
+                    <span className="text-xs text-gray-400">h</span>
                   </div>
                 </div>
               </div>
+              <p className="text-xs text-gray-400 mt-2">Lascia vuota la risposta per non tracciarla su quella priorità.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <button
@@ -478,19 +504,29 @@ function OverviewTab({
             {/* SLA table */}
             <div className="pt-3 border-t border-gray-100">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Clock size={12} /> SLA per Priorità</p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-                {[
-                  { label: '🔴 Critica', val: (project as any).slaCriticalHours ?? 4 },
-                  { label: '🟠 Alta',    val: (project as any).slaHighHours ?? 48 },
-                  { label: '🟡 Media',   val: (project as any).slaMediumHours ?? 120 },
-                  { label: '🟢 Bassa',   val: (project as any).slaLowHours ?? 336 },
-                ].map(({ label, val }) => (
-                  <div key={label} className="flex justify-between py-0.5">
-                    <span className="text-gray-500">{label}</span>
-                    <span className="font-medium">{val}h</span>
-                  </div>
-                ))}
-              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-400">
+                    <th className="text-left pb-1">Priorità</th>
+                    <th className="text-center pb-1 text-blue-500">⚡ Risposta</th>
+                    <th className="text-center pb-1 text-teal-600">🏁 Risoluzione</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: '🔴 Critica', res: (project as any).slaResponseCriticalHours, resol: (project as any).slaCriticalHours ?? 4 },
+                    { label: '🟠 Alta',    res: (project as any).slaResponseHighHours,     resol: (project as any).slaHighHours ?? 48 },
+                    { label: '🟡 Media',   res: (project as any).slaResponseMediumHours,   resol: (project as any).slaMediumHours ?? 120 },
+                    { label: '🟢 Bassa',   res: (project as any).slaResponseLowHours,      resol: (project as any).slaLowHours ?? 336 },
+                  ].map(({ label, res, resol }) => (
+                    <tr key={label} className="border-t border-gray-50">
+                      <td className="py-0.5 text-gray-600">{label}</td>
+                      <td className="py-0.5 text-center font-medium text-blue-700">{res ? `${res}h` : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-0.5 text-center font-medium text-teal-700">{resol}h</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

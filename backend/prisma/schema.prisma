@@ -92,12 +92,16 @@ model Project {
   status             ProjectStatus @default(ACTIVE)
   startDate          DateTime?
   endDate            DateTime?
-  slaHours           Int           @default(24)
-  slaCriticalHours   Int?
-  slaHighHours       Int?
-  slaMediumHours     Int?
-  slaLowHours        Int?
-  createdAt          DateTime      @default(now())
+  slaHours                    Int           @default(24)
+  slaCriticalHours            Int?
+  slaHighHours                Int?
+  slaMediumHours              Int?
+  slaLowHours                 Int?
+  slaResponseCriticalHours    Int?
+  slaResponseHighHours        Int?
+  slaResponseMediumHours      Int?
+  slaResponseLowHours         Int?
+  createdAt                   DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
   members            ProjectUser[]
@@ -163,10 +167,11 @@ model Ticket {
   priority             TicketPriority @default(MEDIUM)
   status               TicketStatus   @default(OPEN)
   type                 TicketType     @default(STANDARD)
-  slaDeadline          DateTime?
-  slaWarningNotifiedAt DateTime?
-  slaExpiredNotifiedAt DateTime?
-  takenChargeAt        DateTime?
+  slaDeadline                 DateTime?
+  slaResponseDeadline         DateTime?
+  slaWarningNotifiedAt        DateTime?
+  slaExpiredNotifiedAt        DateTime?
+  takenChargeAt               DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 

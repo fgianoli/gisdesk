@@ -23,6 +23,10 @@ export interface Project {
   slaHighHours?: number | null;
   slaMediumHours?: number | null;
   slaLowHours?: number | null;
+  slaResponseCriticalHours?: number | null;
+  slaResponseHighHours?: number | null;
+  slaResponseMediumHours?: number | null;
+  slaResponseLowHours?: number | null;
   createdAt: string;
   members?: ProjectMember[];
   _count?: { tickets: number; todos: number; faqs: number; documents: number };
@@ -77,6 +81,7 @@ export interface Ticket {
   status: 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED';
   type: 'STANDARD' | 'SERVICE';
   slaDeadline: string | null;
+  slaResponseDeadline?: string | null;
   slaStatus: 'green' | 'yellow' | 'red' | 'none';
   takenChargeAt?: string | null;
   isUnread?: boolean;

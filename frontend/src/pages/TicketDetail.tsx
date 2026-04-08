@@ -65,44 +65,120 @@ function CommentContent({ content }: { content: string }) {
   );
 }
 
-// SLA Countdown component
-function SlaCountdown({ takenChargeAt, slaDeadline }: { takenChargeAt: string; slaDeadline: string }) {
+// Helper: format milliseconds into "Xg Xh Xm Xs"
+function formatDuration(ms: number): string {
+  if (ms <= 0) return 'SCADUTA';
+  const s = Math.floor(ms / 1000) % 60;
+  const m = Math.floor(ms / 60000) % 60;
+  const h = Math.floor(ms / 3600000) % 24;
+  const d = Math.floor(ms / 86400000);
+  if (d > 0) return `${d}g ${h}h ${m}m ${s}s`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s}s`;
+}
+
+// Helper: format elapsed time between two dates (e.g. "3h 20m")
+function formatElapsed(from: Date, to: Date): string {
+  const ms = to.getTime() - from.getTime();
+  if (ms < 0) return '—';
+  const m = Math.floor(ms / 60000) % 60;
+  const h = Math.floor(ms / 3600000) % 24;
+  const d = Math.floor(ms / 86400000);
+  if (d > 0) return `${d}g ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+interface DualSlaProps {
+  createdAt: string;
+  takenChargeAt?: string | null;
+  slaResponseDeadline?: string | null;
+  slaDeadline: string | null;
+  status: string;
+}
+
+// Dual SLA Countdown: Response SLA + Resolution SLA
+function DualSlaCountdown({ createdAt, takenChargeAt, slaResponseDeadline, slaDeadline, status }: DualSlaProps) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const deadline = new Date(slaDeadline);
-  const taken = new Date(takenChargeAt);
-  const totalMs = deadline.getTime() - taken.getTime();
-  const remainingMs = deadline.getTime() - now.getTime();
-  const pct = totalMs > 0 ? (remainingMs / totalMs) * 100 : 0;
+  const isResolved = status === 'RESOLVED' || status === 'CLOSED';
+  const created = new Date(createdAt);
+  const taken = takenChargeAt ? new Date(takenChargeAt) : null;
+  const responseDl = slaResponseDeadline ? new Date(slaResponseDeadline) : null;
+  const resolutionDl = slaDeadline ? new Date(slaDeadline) : null;
 
-  const color = pct > 25 ? 'text-green-600' : pct > 10 ? 'text-yellow-600' : 'text-red-600';
+  // Response SLA: met when takenChargeAt is set
+  const responseRemaining = responseDl ? responseDl.getTime() - now.getTime() : null;
+  const responseColor = responseRemaining === null ? 'text-gray-400'
+    : taken ? 'text-green-700'
+    : responseRemaining <= 0 ? 'text-red-600'
+    : responseRemaining < 2 * 3600000 ? 'text-yellow-600'
+    : 'text-green-600';
 
-  const formatRemaining = (ms: number) => {
-    if (ms <= 0) return 'SCADUTA';
-    const s = Math.floor(ms / 1000) % 60;
-    const m = Math.floor(ms / 60000) % 60;
-    const h = Math.floor(ms / 3600000) % 24;
-    const d = Math.floor(ms / 86400000);
-    if (d > 0) return `${d}g ${h}h ${m}m ${s}s`;
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    return `${m}m ${s}s`;
-  };
+  // Resolution SLA: met when RESOLVED/CLOSED
+  const resolutionRemaining = resolutionDl ? resolutionDl.getTime() - now.getTime() : null;
+  const resolutionColor = resolutionRemaining === null ? 'text-gray-400'
+    : isResolved ? 'text-green-700'
+    : resolutionRemaining <= 0 ? 'text-red-600'
+    : resolutionRemaining < 4 * 3600000 ? 'text-yellow-600'
+    : 'text-green-600';
+
+  if (!responseDl && !resolutionDl) return null;
 
   return (
-    <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
-      <div className={`text-lg font-bold ${remainingMs <= 0 ? 'text-red-600' : color}`}>
-        {remainingMs <= 0 ? '🚨 SLA SCADUTA' : `⏱ ${formatRemaining(remainingMs)}`}
-      </div>
-      <div className="text-xs text-gray-500 mt-1">
-        Presa in carico: {new Date(takenChargeAt).toLocaleString('it-IT')}
-      </div>
-      <div className="text-xs text-gray-500">
-        Scadenza SLA: {deadline.toLocaleString('it-IT')}
-      </div>
+    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {/* --- Response SLA --- */}
+      {responseDl && (
+        <div className="p-3 bg-gray-50 rounded-lg border">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">⚡ Presa in carico</div>
+          {taken ? (
+            <>
+              <div className="text-sm font-bold text-green-700">✅ Risposto in {formatElapsed(created, taken)}</div>
+              <div className="text-xs text-gray-500 mt-1">
+                Presa in carico: {taken.toLocaleString('it-IT')}
+              </div>
+              {responseRemaining !== null && responseRemaining < 0 && (
+                <div className="text-xs text-red-500">⚠️ Risposta oltre la scadenza</div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className={`text-lg font-bold ${responseColor}`}>
+                {responseRemaining !== null && responseRemaining <= 0 ? '🚨 SCADUTA' : `⏱ ${formatDuration(responseRemaining ?? 0)}`}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                Scadenza: {responseDl.toLocaleString('it-IT')}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* --- Resolution SLA --- */}
+      {resolutionDl && (
+        <div className="p-3 bg-gray-50 rounded-lg border">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">🏁 Risoluzione</div>
+          {isResolved ? (
+            <>
+              <div className="text-sm font-bold text-green-700">✅ Risolto in {formatElapsed(created, now)}</div>
+              <div className="text-xs text-gray-500 mt-1">Ticket chiuso</div>
+            </>
+          ) : (
+            <>
+              <div className={`text-lg font-bold ${resolutionColor}`}>
+                {resolutionRemaining !== null && resolutionRemaining <= 0 ? '🚨 SCADUTA' : `⏱ ${formatDuration(resolutionRemaining ?? 0)}`}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                Scadenza: {resolutionDl.toLocaleString('it-IT')}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -456,8 +532,14 @@ export default function TicketDetail() {
                 </span>
               )}
             </div>
-            {ticket.takenChargeAt && ticket.slaDeadline && (
-              <SlaCountdown takenChargeAt={ticket.takenChargeAt} slaDeadline={ticket.slaDeadline} />
+            {ticket.type !== 'SERVICE' && (ticket.slaDeadline || ticket.slaResponseDeadline) && (
+              <DualSlaCountdown
+                createdAt={ticket.createdAt}
+                takenChargeAt={ticket.takenChargeAt}
+                slaResponseDeadline={ticket.slaResponseDeadline}
+                slaDeadline={ticket.slaDeadline}
+                status={ticket.status}
+              />
             )}
 
             {/* Tags */}
