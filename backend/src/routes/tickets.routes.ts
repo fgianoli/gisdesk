@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient, TicketStatus } from '@prisma/client';
 import { authMiddleware, adminOnly, adminOrProjectAdmin } from '../middleware/auth';
-import { sendEmail, ticketCreatedEmail, ticketUpdatedEmail, ticketCommentEmail } from '../services/email.service';
+import { sendEmail, ticketCreatedEmail, ticketConfirmationEmail, ticketStatusChangedEmail, ticketUpdatedEmail, ticketCommentEmail } from '../services/email.service';
 import { calculateSlaDeadline, calculateSlaResponseDeadline, getSlaStatus } from '../services/sla.service';
 import { validate } from '../middleware/validate';
 import { createTicketSchema, createCommentSchema } from '../middleware/schemas';
@@ -294,16 +294,25 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
       .filter((m) => m.role === 'MANAGER')
       .map((m) => m.user.email);
 
-    // Admins get notified for all tickets
+    // Notify admins/managers of new ticket
     const { subject, html } = ticketCreatedEmail(ticket.title, ticket.project.name, ticket.id);
     if (adminEmails.length > 0) await sendEmail(adminEmails, subject, html);
 
-    // For service tickets, only notify admins
-    if (type !== 'SERVICE') {
+    // For non-service tickets, also notify other project members
+    if (ticketType !== 'SERVICE') {
       const clientEmails = projectMembers
         .filter((m) => m.role === 'MEMBER' && !adminEmails.includes(m.user.email))
         .map((m) => m.user.email);
       if (clientEmails.length > 0) await sendEmail(clientEmails, subject, html);
+    }
+
+    // Confirmation email to the creator (always, unless they are an admin creating a service ticket)
+    const creator = ticket.creator as { email: string; name: string } | undefined;
+    if (creator?.email && !adminEmails.includes(creator.email)) {
+      const { subject: cs, html: ch } = ticketConfirmationEmail(
+        ticket.title, ticket.project.name, ticket.id, ticket.priority,
+      );
+      await sendEmail(creator.email, cs, ch);
     }
 
     res.status(201).json(ticket);
@@ -379,29 +388,49 @@ router.put('/:id', authMiddleware, async (req, res) => {
       await logAudit(prisma, req.user!.userId, 'TICKET_UPDATED', 'Ticket', ticket.id, JSON.stringify(historyEntries), req.ip || undefined);
     }
 
-    // Send satisfaction survey email if status changed to RESOLVED or CLOSED
     const statusChange = historyEntries.find(e => e.field === 'status');
-    if (statusChange && (statusChange.newValue === 'RESOLVED' || statusChange.newValue === 'CLOSED')) {
+
+    // Notify creator of status change (dedicated email, regardless of project membership)
+    if (statusChange) {
       try {
         const creator = await prisma.user.findUnique({ where: { id: ticket.creatorId } });
         if (creator?.email) {
-          const surveyUrl = `${process.env.FRONTEND_URL}/tickets/${ticket.id}?survey=1`;
-          await sendEmail(
-            creator.email,
-            `Il tuo ticket "${ticket.title}" è stato ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'} - Lascia una valutazione`,
-            `<h2>Come è andata?</h2><p>Il ticket <strong>${ticket.title}</strong> è stato ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'}.</p><p>Ci farebbe molto piacere ricevere un tuo feedback sulla qualità del supporto ricevuto.</p><p><a href="${surveyUrl}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Lascia una valutazione</a></p>`,
-          );
+          if (statusChange.newValue === 'RESOLVED' || statusChange.newValue === 'CLOSED') {
+            // Survey email on resolution/closure
+            const surveyUrl = `${process.env.FRONTEND_URL}/tickets/${ticket.id}?survey=1`;
+            await sendEmail(
+              creator.email,
+              `[${updated.project.name}] Ticket ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'}: ${ticket.title}`,
+              `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                <h2 style="color:#16a34a">✅ Ticket ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'}</h2>
+                <p>Il ticket <strong>"${ticket.title}"</strong> è stato ${statusChange.newValue === 'RESOLVED' ? 'risolto' : 'chiuso'}.</p>
+                <p>Ci farebbe molto piacere ricevere un tuo feedback sulla qualità del supporto ricevuto.</p>
+                <p><a href="${surveyUrl}" style="background:#16a34a;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Lascia una valutazione</a></p>
+              </div>`,
+            );
+          } else {
+            // Status change notification for all other transitions
+            const { subject, html } = ticketStatusChangedEmail(
+              ticket.title, updated.project.name, ticket.id,
+              statusChange.oldValue, statusChange.newValue,
+            );
+            await sendEmail(creator.email, subject, html);
+          }
         }
       } catch { /* ignore email errors */ }
     }
 
-    // Send email for status/priority changes
+    // Notify internal team (project members) of any field change
     if (historyEntries.length > 0) {
       const projectMembers = await prisma.projectUser.findMany({
         where: { projectId: ticket.projectId },
         include: { user: { select: { email: true } } },
       });
-      const emails = projectMembers.map((m) => m.user.email);
+      // Exclude creator to avoid double email on status changes
+      const creatorEmail = (await prisma.user.findUnique({ where: { id: ticket.creatorId }, select: { email: true } }))?.email;
+      const emails = projectMembers
+        .map((m) => m.user.email)
+        .filter((e) => e !== creatorEmail);
       const mainChange = historyEntries[0];
       const { subject, html } = ticketUpdatedEmail(
         updated.title, updated.project.name, updated.id,

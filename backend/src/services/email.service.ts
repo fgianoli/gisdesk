@@ -37,15 +37,103 @@ export async function sendEmail(to: string | string[], subject: string, html: st
   }
 }
 
+const statusLabels: Record<string, string> = {
+  OPEN: 'Aperto',
+  IN_PROGRESS: 'In lavorazione',
+  WAITING: 'In attesa',
+  RESOLVED: 'Risolto',
+  CLOSED: 'Chiuso',
+};
+
+const priorityLabels: Record<string, string> = {
+  CRITICAL: 'Critica',
+  HIGH: 'Alta',
+  MEDIUM: 'Media',
+  LOW: 'Bassa',
+  FEATURE_REQUEST: 'Richiesta funzionalità',
+};
+
+/** Sent to admins/managers when a new ticket is created */
 export function ticketCreatedEmail(ticketTitle: string, projectName: string, ticketId: string) {
   const url = `${env.FRONTEND_URL}/tickets/${ticketId}`;
   return {
     subject: `[${projectName}] Nuovo ticket: ${ticketTitle}`,
     html: `
-      <h2>Nuovo Ticket Creato</h2>
-      <p><strong>Progetto:</strong> ${projectName}</p>
-      <p><strong>Ticket:</strong> ${ticketTitle}</p>
-      <p><a href="${url}">Visualizza Ticket</a></p>
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+        <h2 style="color:#1d4ed8">📋 Nuovo Ticket Ricevuto</h2>
+        <p><strong>Progetto:</strong> ${projectName}</p>
+        <p><strong>Titolo:</strong> ${ticketTitle}</p>
+        <p><a href="${url}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Visualizza Ticket</a></p>
+      </div>
+    `,
+  };
+}
+
+/** Sent to the ticket creator as confirmation of submission */
+export function ticketConfirmationEmail(ticketTitle: string, projectName: string, ticketId: string, priority: string) {
+  const url = `${env.FRONTEND_URL}/tickets/${ticketId}`;
+  const priorityLabel = priorityLabels[priority] || priority;
+  return {
+    subject: `[${projectName}] Ticket ricevuto: ${ticketTitle}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+        <h2 style="color:#0f766e">✅ Abbiamo ricevuto il tuo ticket</h2>
+        <p>Grazie per averci contattato. Il tuo ticket è stato registrato e sarà preso in carico al più presto.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr style="background:#f8fafc">
+            <td style="padding:8px 12px;font-weight:bold;border:1px solid #e2e8f0;width:140px">Progetto</td>
+            <td style="padding:8px 12px;border:1px solid #e2e8f0">${projectName}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px;font-weight:bold;border:1px solid #e2e8f0">Titolo</td>
+            <td style="padding:8px 12px;border:1px solid #e2e8f0">${ticketTitle}</td>
+          </tr>
+          <tr style="background:#f8fafc">
+            <td style="padding:8px 12px;font-weight:bold;border:1px solid #e2e8f0">Priorità</td>
+            <td style="padding:8px 12px;border:1px solid #e2e8f0">${priorityLabel}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px;font-weight:bold;border:1px solid #e2e8f0">Stato</td>
+            <td style="padding:8px 12px;border:1px solid #e2e8f0">Aperto</td>
+          </tr>
+        </table>
+        <p>Puoi seguire l'avanzamento del ticket in qualsiasi momento cliccando il pulsante qui sotto.</p>
+        <p><a href="${url}" style="background:#0f766e;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Segui il Ticket</a></p>
+        <p style="color:#94a3b8;font-size:12px;margin-top:24px">Riceverai aggiornamenti via email ad ogni cambio di stato o nuovo commento.</p>
+      </div>
+    `,
+  };
+}
+
+/** Sent to the ticket creator when status changes */
+export function ticketStatusChangedEmail(ticketTitle: string, projectName: string, ticketId: string, oldStatus: string, newStatus: string) {
+  const url = `${env.FRONTEND_URL}/tickets/${ticketId}`;
+  const oldLabel = statusLabels[oldStatus] || oldStatus;
+  const newLabel = statusLabels[newStatus] || newStatus;
+  const statusColors: Record<string, string> = {
+    IN_PROGRESS: '#2563eb',
+    WAITING: '#d97706',
+    RESOLVED: '#16a34a',
+    CLOSED: '#6b7280',
+    OPEN: '#dc2626',
+  };
+  const color = statusColors[newStatus] || '#1d4ed8';
+  return {
+    subject: `[${projectName}] Ticket aggiornato: ${newLabel} — ${ticketTitle}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+        <h2 style="color:${color}">🔄 Aggiornamento ticket</h2>
+        <p>Il tuo ticket <strong>"${ticketTitle}"</strong> (progetto: ${projectName}) ha cambiato stato.</p>
+        <div style="background:#f8fafc;border-left:4px solid ${color};padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0">
+          <span style="color:#94a3b8;text-decoration:line-through">${oldLabel}</span>
+          &nbsp;→&nbsp;
+          <strong style="color:${color}">${newLabel}</strong>
+        </div>
+        ${newStatus === 'IN_PROGRESS' ? '<p>Un operatore ha preso in carico il tuo ticket e sta lavorando alla soluzione.</p>' : ''}
+        ${newStatus === 'WAITING' ? '<p>Il ticket è in attesa di ulteriori informazioni o di una risposta da parte tua.</p>' : ''}
+        ${newStatus === 'RESOLVED' ? '<p>Il ticket è stato marcato come risolto. Se il problema persiste, puoi riaprirlo aggiungendo un commento.</p>' : ''}
+        <p><a href="${url}" style="background:${color};color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Visualizza Ticket</a></p>
+      </div>
     `,
   };
 }
@@ -55,11 +143,13 @@ export function ticketUpdatedEmail(ticketTitle: string, projectName: string, tic
   return {
     subject: `[${projectName}] Ticket aggiornato: ${ticketTitle}`,
     html: `
-      <h2>Ticket Aggiornato</h2>
-      <p><strong>Progetto:</strong> ${projectName}</p>
-      <p><strong>Ticket:</strong> ${ticketTitle}</p>
-      <p><strong>${field}:</strong> ${oldVal} → ${newVal}</p>
-      <p><a href="${url}">Visualizza Ticket</a></p>
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+        <h2 style="color:#1d4ed8">Ticket Aggiornato</h2>
+        <p><strong>Progetto:</strong> ${projectName}</p>
+        <p><strong>Ticket:</strong> ${ticketTitle}</p>
+        <p><strong>${field}:</strong> ${oldVal} → ${newVal}</p>
+        <p><a href="${url}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Visualizza Ticket</a></p>
+      </div>
     `,
   };
 }
