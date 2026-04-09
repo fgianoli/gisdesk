@@ -668,21 +668,34 @@ export default function TicketDetail() {
           <RichTextDisplay html={ticket.description} />
         </div>
 
-        {/* Satisfaction score display */}
-        {(ticket as any).satisfaction && (
-          <div className="border-t pt-4 mt-4">
-            <h3 className="font-medium text-gray-900 mb-2">Valutazione Cliente</h3>
-            <div className="flex items-center gap-2">
-              {[1,2,3,4,5].map(s => (
-                <Star key={s} className={`w-5 h-5 ${s <= (ticket as any).satisfaction.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
-              ))}
-              <span className="text-sm text-gray-600 ml-2">{(ticket as any).satisfaction.rating}/5</span>
+        {/* Satisfaction score — visible only to admin/project_admin */}
+        {isAdminOrProjectAdmin && (ticket as any).satisfaction && (() => {
+          const sat = (ticket as any).satisfaction;
+          const rating: number = sat.rating;
+          const labels = ['', 'Molto insoddisfatto', 'Insoddisfatto', 'Neutro', 'Soddisfatto', 'Molto soddisfatto'];
+          const colors = ['', 'text-red-600', 'text-orange-500', 'text-yellow-500', 'text-green-500', 'text-green-700'];
+          return (
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <Star className="w-3.5 h-3.5" /> Valutazione del cliente
+              </h3>
+              <div className="bg-gray-50 rounded-lg p-4 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  {[1,2,3,4,5].map(s => (
+                    <Star key={s} className={`w-6 h-6 ${s <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'}`} />
+                  ))}
+                  <span className={`text-sm font-semibold ml-1 ${colors[rating]}`}>{labels[rating]}</span>
+                  <span className="text-xs text-gray-400 ml-auto">
+                    {sat.createdAt ? new Date(sat.createdAt).toLocaleDateString('it-IT') : ''}
+                  </span>
+                </div>
+                {sat.comment && (
+                  <p className="text-sm text-gray-700 italic border-l-2 border-yellow-300 pl-3">"{sat.comment}"</p>
+                )}
+              </div>
             </div>
-            {(ticket as any).satisfaction.comment && (
-              <p className="text-sm text-gray-600 mt-1 italic">"{(ticket as any).satisfaction.comment}"</p>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Merge Modal */}
