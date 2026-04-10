@@ -1,4 +1,6 @@
 import { useEditor, EditorContent } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
+import { Plugin } from 'prosemirror-state';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
@@ -7,7 +9,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import TextAlign from '@tiptap/extension-text-align';
 import Color from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Code,
@@ -21,6 +23,40 @@ interface RichTextEditorProps {
   readOnly?: boolean;
 }
 
+// ProseMirror-level paste extension — reliably intercepts clipboard images
+const ImagePasteExtension = Extension.create({
+  name: 'imagePaste',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handlePaste(view, event) {
+            const items = Array.from(event.clipboardData?.items || []);
+            const imageItem = items.find((item) => item.type.startsWith('image/'));
+            if (!imageItem) return false;
+
+            event.preventDefault();
+            const file = imageItem.getAsFile();
+            if (!file) return false;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+              const base64 = reader.result as string;
+              const { schema } = view.state;
+              if (!schema.nodes.image) return;
+              const node = schema.nodes.image.create({ src: base64 });
+              const tr = view.state.tr.replaceSelectionWith(node);
+              view.dispatch(tr);
+            };
+            reader.readAsDataURL(file);
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+});
+
 export default function RichTextEditor({ value, onChange, placeholder, readOnly }: RichTextEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -29,6 +65,7 @@ export default function RichTextEditor({ value, onChange, placeholder, readOnly 
       TextStyle,
       Color,
       Image.configure({ allowBase64: true }),
+      ImagePasteExtension,
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder: placeholder || 'Scrivi qui...' }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -40,29 +77,12 @@ export default function RichTextEditor({ value, onChange, placeholder, readOnly 
     },
   });
 
-  // Sync value when it changes externally (e.g., applying a template)
+  // Sync value when changed externally (e.g. applying a template)
   useEffect(() => {
     if (editor && value !== editor.getHTML()) {
       editor.commands.setContent(value);
     }
   }, [value, editor]);
-
-  const handleImagePaste = useCallback((e: React.ClipboardEvent) => {
-    if (!editor) return;
-    const items = Array.from(e.clipboardData?.items || []);
-    const imageItem = items.find((item) => item.type.startsWith('image/'));
-    if (imageItem) {
-      e.preventDefault();
-      const file = imageItem.getAsFile();
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        editor.chain().focus().setImage({ src: base64 }).run();
-      };
-      reader.readAsDataURL(file);
-    }
-  }, [editor]);
 
   const setLink = () => {
     if (!editor) return;
@@ -128,7 +148,7 @@ export default function RichTextEditor({ value, onChange, placeholder, readOnly 
               if (url) editor.chain().focus().setImage({ src: url }).run();
             }}
             className={btnClass(false)}
-            title="Inserisci immagine"
+            title="Inserisci immagine da URL"
           >
             <ImageIcon className="w-4 h-4" />
           </button>
@@ -146,9 +166,13 @@ export default function RichTextEditor({ value, onChange, placeholder, readOnly 
       )}
       <EditorContent
         editor={editor}
-        onPaste={handleImagePaste}
         className="prose prose-sm max-w-none p-3 min-h-[120px] focus-within:outline-none"
       />
+      {!readOnly && (
+        <div className="px-3 py-1.5 bg-gray-50 border-t text-xs text-gray-400">
+          💡 Puoi incollare screenshot direttamente con Ctrl+V
+        </div>
+      )}
     </div>
   );
 }
