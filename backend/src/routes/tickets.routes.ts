@@ -12,6 +12,17 @@ import { pushEvent } from './sse.routes';
 const router = Router();
 const prisma = new PrismaClient();
 
+// Helper: check if a user has a specific notification preference enabled (defaults to true if no record)
+async function userWantsEmail(userId: string, pref: 'emailOnTicketCreated' | 'emailOnStatusChange' | 'emailOnComment' | 'emailOnSlaWarning' | 'weeklyReport'): Promise<boolean> {
+  try {
+    const prefs = await (prisma as any).userNotificationPreference.findUnique({ where: { userId } });
+    if (!prefs) return true; // default: all enabled
+    return prefs[pref] !== false;
+  } catch {
+    return true;
+  }
+}
+
 // Search tickets
 router.get('/search', authMiddleware, async (req, res) => {
   try {
@@ -137,11 +148,13 @@ router.get('/', authMiddleware, async (req, res) => {
     });
 
     const isAdminOrPA = ['ADMIN', 'PROJECT_ADMIN'].includes(req.user!.role);
+    // Global read: a ticket is "unread" if NO admin has ever read it (any userId)
     let readTicketIds = new Set<string>();
     if (isAdminOrPA && tickets.length > 0) {
       const reads = await prisma.ticketRead.findMany({
-        where: { userId: req.user!.userId, ticketId: { in: tickets.map(t => t.id) } },
+        where: { ticketId: { in: tickets.map(t => t.id) } },
         select: { ticketId: true },
+        distinct: ['ticketId'],
       });
       readTicketIds = new Set(reads.map(r => r.ticketId));
     }
@@ -306,13 +319,16 @@ router.post('/', authMiddleware, validate(createTicketSchema), async (req, res) 
       if (clientEmails.length > 0) await sendEmail(clientEmails, subject, html);
     }
 
-    // Confirmation email to the creator (always, unless they are an admin creating a service ticket)
-    const creator = ticket.creator as { email: string; name: string } | undefined;
+    // Confirmation email to the creator (unless they are an admin already notified above)
+    const creator = ticket.creator as { email: string; name: string; id?: string } | undefined;
     if (creator?.email && !adminEmails.includes(creator.email)) {
-      const { subject: cs, html: ch } = ticketConfirmationEmail(
-        ticket.title, ticket.project.name, ticket.id, ticket.priority,
-      );
-      await sendEmail(creator.email, cs, ch);
+      const wants = await userWantsEmail(ticket.creatorId, 'emailOnTicketCreated');
+      if (wants) {
+        const { subject: cs, html: ch } = ticketConfirmationEmail(
+          ticket.title, ticket.project.name, ticket.id, ticket.priority,
+        );
+        await sendEmail(creator.email, cs, ch);
+      }
     }
 
     res.status(201).json(ticket);
@@ -394,7 +410,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
     if (statusChange) {
       try {
         const creator = await prisma.user.findUnique({ where: { id: ticket.creatorId } });
-        if (creator?.email) {
+        const wantsStatusEmail = await userWantsEmail(ticket.creatorId, 'emailOnStatusChange');
+        if (creator?.email && wantsStatusEmail) {
           if (statusChange.newValue === 'RESOLVED' || statusChange.newValue === 'CLOSED') {
             // Survey email on resolution/closure
             const surveyUrl = `${process.env.FRONTEND_URL}/tickets/${ticket.id}?survey=1`;
@@ -469,16 +486,23 @@ router.post('/:id/comments', authMiddleware, validate(createCommentSchema), asyn
     if (!internal) {
       const participants = await prisma.ticketComment.findMany({
         where: { ticketId: req.params.id, isInternal: false },
-        select: { user: { select: { email: true } } },
+        select: { user: { select: { id: true, email: true } } },
         distinct: ['userId'],
       });
-      const emails = [
-        ...new Set([
-          ...participants.map((p) => p.user.email),
-          ...(ticket.creatorId ? [(await prisma.user.findUnique({ where: { id: ticket.creatorId } }))?.email].filter(Boolean) : []),
-        ]),
-      ].filter((e) => e) as string[];
-
+      // Filter by notification preference
+      const emailList: string[] = [];
+      for (const p of participants) {
+        if (p.user.email && await userWantsEmail(p.user.id, 'emailOnComment')) {
+          emailList.push(p.user.email);
+        }
+      }
+      if (ticket.creatorId) {
+        const creatorUser = await prisma.user.findUnique({ where: { id: ticket.creatorId }, select: { email: true } });
+        if (creatorUser?.email && !emailList.includes(creatorUser.email) && await userWantsEmail(ticket.creatorId, 'emailOnComment')) {
+          emailList.push(creatorUser.email);
+        }
+      }
+      const emails = [...new Set(emailList)];
       const { subject, html } = ticketCommentEmail(ticket.title, ticket.project.name, ticket.id, commenter?.name || 'Unknown');
       if (emails.length > 0) await sendEmail(emails, subject, html);
     }
@@ -595,6 +619,16 @@ router.post('/:id/merge', authMiddleware, adminOnly, async (req, res) => {
     });
 
     res.json(updatedTarget);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
+// Mark ticket as unread globally (delete all TicketRead rows for this ticket)
+router.delete('/:id/read', authMiddleware, adminOrProjectAdmin, async (req, res) => {
+  try {
+    await prisma.ticketRead.deleteMany({ where: { ticketId: req.params.id } });
+    res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Errore server' });
   }

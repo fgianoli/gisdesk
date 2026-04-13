@@ -146,4 +146,37 @@ router.get('/avatar/:userId', async (req, res) => {
   }
 });
 
+// GET /me/notifications - get notification preferences
+router.get('/me/notifications', authMiddleware, async (req, res) => {
+  try {
+    const prefs = await (prisma as any).userNotificationPreference.findUnique({
+      where: { userId: req.user!.userId },
+    });
+    res.json(prefs ?? {
+      emailOnTicketCreated: true,
+      emailOnStatusChange: true,
+      emailOnComment: true,
+      emailOnSlaWarning: true,
+      weeklyReport: true,
+    });
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
+// PUT /me/notifications - update notification preferences
+router.put('/me/notifications', authMiddleware, async (req, res) => {
+  try {
+    const { emailOnTicketCreated, emailOnStatusChange, emailOnComment, emailOnSlaWarning, weeklyReport } = req.body;
+    const prefs = await (prisma as any).userNotificationPreference.upsert({
+      where: { userId: req.user!.userId },
+      update: { emailOnTicketCreated, emailOnStatusChange, emailOnComment, emailOnSlaWarning, weeklyReport },
+      create: { userId: req.user!.userId, emailOnTicketCreated, emailOnStatusChange, emailOnComment, emailOnSlaWarning, weeklyReport },
+    });
+    res.json(prefs);
+  } catch {
+    res.status(500).json({ error: 'Errore server' });
+  }
+});
+
 export default router;

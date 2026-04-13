@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, Info, Save, Camera, CheckCircle, AlertCircle } from 'lucide-react';
+import { User, Lock, Info, Save, Camera, CheckCircle, AlertCircle, Bell } from 'lucide-react';
 import api from '../api/client';
 
-type Tab = 'profile' | 'security' | 'account';
+type Tab = 'profile' | 'security' | 'notifications' | 'account';
 
 interface ProfileData {
   id: string;
@@ -17,13 +17,34 @@ interface ProfileData {
   _count?: { createdTickets: number };
 }
 
+interface NotifPrefs {
+  emailOnTicketCreated: boolean;
+  emailOnStatusChange: boolean;
+  emailOnComment: boolean;
+  emailOnSlaWarning: boolean;
+  weeklyReport: boolean;
+}
+
 function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  return name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (v: boolean) => void; label: string; description: string }) {
+  return (
+    <div className="flex items-start justify-between py-3 border-b border-gray-100 last:border-0">
+      <div className="flex-1 pr-4">
+        <p className="text-sm font-medium text-gray-800">{label}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${checked ? 'bg-emerald-500' : 'bg-gray-200'}`}
+      >
+        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+      </button>
+    </div>
+  );
 }
 
 export default function UserProfile() {
@@ -50,6 +71,17 @@ export default function UserProfile() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Notification preferences
+  const [notifPrefs, setNotifPrefs] = useState<NotifPrefs>({
+    emailOnTicketCreated: true,
+    emailOnStatusChange: true,
+    emailOnComment: true,
+    emailOnSlaWarning: true,
+    weeklyReport: true,
+  });
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifMsg, setNotifMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   useEffect(() => {
     api.get<ProfileData>('/profile/me').then((r) => {
       setProfile(r.data);
@@ -58,6 +90,10 @@ export default function UserProfile() {
       setPhone(r.data.phone || '');
       setCompany(r.data.company || '');
     }).catch(() => {}).finally(() => setLoading(false));
+
+    api.get<NotifPrefs>('/profile/me/notifications').then((r) => {
+      setNotifPrefs(r.data);
+    }).catch(() => {});
   }, []);
 
   const handleProfileSave = async () => {
@@ -89,12 +125,9 @@ export default function UserProfile() {
     try {
       await api.put('/profile/me/password', { currentPassword, newPassword });
       setPasswordMsg({ type: 'success', text: 'Password aggiornata con successo.' });
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     } catch (err: any) {
-      const msg = err.response?.data?.error || 'Errore durante il cambio password.';
-      setPasswordMsg({ type: 'error', text: msg });
+      setPasswordMsg({ type: 'error', text: err.response?.data?.error || 'Errore durante il cambio password.' });
     } finally {
       setPasswordSaving(false);
       setTimeout(() => setPasswordMsg(null), 5000);
@@ -112,17 +145,30 @@ export default function UserProfile() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setProfile((prev) => prev ? { ...prev, avatar: r.data.avatar } : prev);
-    } catch {
-      // silent
-    } finally {
+    } catch {} finally {
       setAvatarUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleNotifSave = async () => {
+    setNotifSaving(true);
+    setNotifMsg(null);
+    try {
+      await api.put('/profile/me/notifications', notifPrefs);
+      setNotifMsg({ type: 'success', text: 'Preferenze notifiche salvate.' });
+    } catch {
+      setNotifMsg({ type: 'error', text: 'Errore durante il salvataggio.' });
+    } finally {
+      setNotifSaving(false);
+      setTimeout(() => setNotifMsg(null), 4000);
     }
   };
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'profile', label: 'Profilo', icon: <User className="w-4 h-4" /> },
     { key: 'security', label: 'Sicurezza', icon: <Lock className="w-4 h-4" /> },
+    { key: 'notifications', label: 'Notifiche', icon: <Bell className="w-4 h-4" /> },
     { key: 'account', label: 'Info Account', icon: <Info className="w-4 h-4" /> },
   ];
 
@@ -167,86 +213,49 @@ export default function UserProfile() {
       {/* Tab: Profilo */}
       {activeTab === 'profile' && profile && (
         <div className="space-y-6">
-          {/* Avatar section */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-4">Foto Profilo</h2>
             <div className="flex items-center gap-5">
               {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt="Avatar"
-                  className="w-20 h-20 rounded-full object-cover border-2 border-emerald-200"
-                />
+                <img src={avatarUrl} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-2 border-emerald-200" />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-emerald-600 flex items-center justify-center text-white text-2xl font-bold border-2 border-emerald-200">
                   {getInitials(profile.name)}
                 </div>
               )}
               <div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={avatarUploading}
-                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50 transition"
-                >
+                <button onClick={() => fileInputRef.current?.click()} disabled={avatarUploading}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50 transition">
                   <Camera className="w-4 h-4" />
                   {avatarUploading ? 'Caricamento...' : 'Cambia foto'}
                 </button>
                 <p className="mt-1 text-xs text-gray-400">Max 5MB, solo immagini</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarUpload}
-                />
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
               </div>
             </div>
           </div>
 
-          {/* Profile fields */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
             <h2 className="text-base font-semibold text-gray-800">Informazioni Personali</h2>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Telefono</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+39 012 3456789"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+39 012 3456789"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Azienda</label>
-              <input
-                type="text"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                placeholder="Nome azienda"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Nome azienda"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
           </div>
 
@@ -256,12 +265,8 @@ export default function UserProfile() {
               {profileMsg.text}
             </div>
           )}
-
-          <button
-            onClick={handleProfileSave}
-            disabled={profileSaving}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition"
-          >
+          <button onClick={handleProfileSave} disabled={profileSaving}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
             <Save className="w-4 h-4" />
             {profileSaving ? 'Salvataggio...' : 'Salva modifiche'}
           </button>
@@ -273,55 +278,85 @@ export default function UserProfile() {
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
             <h2 className="text-base font-semibold text-gray-800">Cambio Password</h2>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Password attuale</label>
-              <input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nuova password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 8 caratteri"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min. 8 caratteri"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Conferma nuova password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Ripeti la nuova password"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              />
+              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Ripeti la nuova password"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             </div>
           </div>
-
           {passwordMsg && (
             <div className={`rounded-lg px-4 py-3 text-sm flex items-center gap-2 ${passwordMsg.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-700'}`}>
               {passwordMsg.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
               {passwordMsg.text}
             </div>
           )}
-
-          <button
-            onClick={handlePasswordChange}
-            disabled={passwordSaving}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition"
-          >
+          <button onClick={handlePasswordChange} disabled={passwordSaving}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
             <Lock className="w-4 h-4" />
             {passwordSaving ? 'Aggiornamento...' : 'Aggiorna password'}
+          </button>
+        </div>
+      )}
+
+      {/* Tab: Notifiche */}
+      {activeTab === 'notifications' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 className="text-base font-semibold text-gray-800 mb-1">Notifiche Email</h2>
+            <p className="text-xs text-gray-500 mb-4">Scegli quali email vuoi ricevere. Puoi modificare queste impostazioni in qualsiasi momento.</p>
+            <div>
+              <Toggle
+                checked={notifPrefs.emailOnTicketCreated}
+                onChange={(v) => setNotifPrefs((p) => ({ ...p, emailOnTicketCreated: v }))}
+                label="Conferma creazione ticket"
+                description="Email di conferma quando crei un nuovo ticket"
+              />
+              <Toggle
+                checked={notifPrefs.emailOnStatusChange}
+                onChange={(v) => setNotifPrefs((p) => ({ ...p, emailOnStatusChange: v }))}
+                label="Cambio di stato ticket"
+                description="Notifica quando un ticket cambia stato (es. In lavorazione, Risolto)"
+              />
+              <Toggle
+                checked={notifPrefs.emailOnComment}
+                onChange={(v) => setNotifPrefs((p) => ({ ...p, emailOnComment: v }))}
+                label="Nuovi commenti"
+                description="Notifica quando viene aggiunto un commento ai tuoi ticket"
+              />
+              <Toggle
+                checked={notifPrefs.emailOnSlaWarning}
+                onChange={(v) => setNotifPrefs((p) => ({ ...p, emailOnSlaWarning: v }))}
+                label="Avvisi SLA"
+                description="Notifica quando un ticket si avvicina alla scadenza SLA"
+              />
+              <Toggle
+                checked={notifPrefs.weeklyReport}
+                onChange={(v) => setNotifPrefs((p) => ({ ...p, weeklyReport: v }))}
+                label="Report settimanale"
+                description="Riepilogo settimanale dell'attività (ogni lunedì alle 8:00)"
+              />
+            </div>
+          </div>
+          {notifMsg && (
+            <div className={`rounded-lg px-4 py-3 text-sm flex items-center gap-2 ${notifMsg.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+              {notifMsg.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              {notifMsg.text}
+            </div>
+          )}
+          <button onClick={handleNotifSave} disabled={notifSaving}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
+            <Save className="w-4 h-4" />
+            {notifSaving ? 'Salvataggio...' : 'Salva preferenze'}
           </button>
         </div>
       )}
@@ -331,7 +366,6 @@ export default function UserProfile() {
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-4">Dettagli Account</h2>
-
             <div className="space-y-3">
               <div className="flex justify-between py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-500">Ruolo</span>

@@ -83,6 +83,7 @@ model User {
   projectMessages    ProjectMessage[]
   assignmentRules    AssignmentRule[] @relation("AssignmentRuleAssignee")
   ticketReads        TicketRead[]
+  notificationPrefs  UserNotificationPreference?
 }
 
 model Project {
@@ -481,4 +482,14 @@ model TicketRead {
   ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([ticketId, userId])
+}
+
+model UserNotificationPreference {
+  userId                 String  @id
+  emailOnTicketCreated   Boolean @default(true)
+  emailOnStatusChange    Boolean @default(true)
+  emailOnComment         Boolean @default(true)
+  emailOnSlaWarning      Boolean @default(true)
+  weeklyReport           Boolean @default(true)
+  user                   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

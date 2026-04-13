@@ -214,6 +214,7 @@ const Dashboard: React.FC = () => {
       icon: FolderKanban,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
+      href: '/projects',
     },
     {
       label: t('dashboard.totalTickets'),
@@ -221,6 +222,7 @@ const Dashboard: React.FC = () => {
       icon: Ticket,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
+      href: '/tickets',
     },
     {
       label: t('dashboard.openTickets'),
@@ -228,6 +230,7 @@ const Dashboard: React.FC = () => {
       icon: CircleDot,
       color: 'text-green-600',
       bg: 'bg-green-50',
+      href: '/tickets?status=OPEN',
     },
     {
       label: t('dashboard.criticalTickets'),
@@ -235,6 +238,7 @@ const Dashboard: React.FC = () => {
       icon: AlertCircle,
       color: 'text-red-600',
       bg: 'bg-red-50',
+      href: '/tickets?priority=CRITICAL',
     },
   ];
 
@@ -259,9 +263,10 @@ const Dashboard: React.FC = () => {
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => (
-          <div
+          <button
             key={card.label}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex items-center gap-4"
+            onClick={() => navigate(card.href)}
+            className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex items-center gap-4 hover:shadow-md hover:border-gray-300 transition-all text-left w-full cursor-pointer"
           >
             <div className={`${card.bg} rounded-lg p-3`}>
               <card.icon className={`h-6 w-6 ${card.color}`} />
@@ -270,7 +275,7 @@ const Dashboard: React.FC = () => {
               <p className="text-sm text-gray-500">{card.label}</p>
               <p className="text-2xl font-bold text-gray-900">{card.value}</p>
             </div>
-          </div>
+          </button>
         ))}
       </div>
 

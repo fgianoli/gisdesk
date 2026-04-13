@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { Ticket, Project, User, TicketTemplate, SavedFilter, Tag } from '../types';
@@ -86,10 +86,16 @@ function KanbanCard({ ticket, navigate }: { ticket: Ticket; navigate: (path: str
 export default function TicketsPage() {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<TicketTemplate[]>([]);
-  const [filters, setFilters] = useState({ projectId: '', status: '', priority: '', tagId: '' });
+  const [filters, setFilters] = useState({
+    projectId: searchParams.get('projectId') || '',
+    status: searchParams.get('status') || '',
+    priority: searchParams.get('priority') || '',
+    tagId: searchParams.get('tagId') || '',
+  });
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ projectId: '', title: '', description: '', priority: 'MEDIUM', assigneeId: '', type: 'STANDARD' });

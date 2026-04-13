@@ -5,7 +5,7 @@ import api from '../api/client';
 import { Ticket, User, TicketAttachment, TimeEntry, TicketDependency, CannedResponse, Tag, Todo } from '../types';
 import {
   ArrowLeft, Clock, AlertTriangle, Send, Edit2, Save, X, Paperclip, Download, Image,
-  Timer, Link2, Plus, Trash2, Star, Lock, MessageSquare, Merge, Tag as TagIcon, ListTodo, Circle, CheckCircle2,
+  Timer, Link2, Plus, Trash2, Star, Lock, MessageSquare, Merge, Tag as TagIcon, ListTodo, Circle, CheckCircle2, CircleDot,
 } from 'lucide-react';
 import RichTextEditor from '../components/RichTextEditor';
 import RichTextDisplay from '../components/RichTextDisplay';
@@ -394,6 +394,13 @@ export default function TicketDetail() {
     }
   };
 
+  const handleMarkUnread = async () => {
+    try {
+      await api.delete(`/tickets/${id}/read`);
+      navigate('/tickets');
+    } catch {}
+  };
+
   const handleAddTimeEntry = async () => {
     if (!timeForm.minutes || Number(timeForm.minutes) <= 0) return;
     try {
@@ -593,6 +600,15 @@ export default function TicketDetail() {
             {(isAdmin || ticket.creatorId === currentUser?.id) && !editing && (
               <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 rounded hover:bg-gray-200">
                 <Edit2 className="w-4 h-4" /> Modifica
+              </button>
+            )}
+            {isAdminOrProjectAdmin && (
+              <button
+                onClick={handleMarkUnread}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-200"
+                title="Segna come da leggere per tutti gli admin"
+              >
+                <CircleDot className="w-4 h-4" /> Da leggere
               </button>
             )}
             {isAdmin && (
